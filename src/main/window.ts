@@ -2,6 +2,7 @@ import { BrowserWindow, app, screen } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { log } from './log.js';
+import { applyHardestContentProtection, clearContentProtection } from './win32.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,22 +40,46 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     },
   });
 
-  // The cross-platform killer feature: tells the OS compositor not to include
-  // this window's pixels in screen captures, screen recordings, or screen-
-  // share streams.
-  //   Windows: maps to SetWindowDisplayAffinity(WDA_MONITOR).
-  //   macOS:   sets NSWindowSharingType = NSWindowSharingNone.
-  // Both succeed silently when unsupported (very old OS builds); the user
-  // would visually see the window appear in their share, so we don't try to
-  // fall back — the privacy guarantee is the API working.
+  // Cross-platform screen-capture exclusion. Different story on each OS:
+  //
+  //   macOS: BrowserWindow.setContentProtection(true) sets
+  //          NSWindowSharingType = NSWindowSharingNone, which already
+  //          excludes the window from EVERY capture path on macOS. Done.
+  //
+  //   Windows: setContentProtection(true) only calls SetWindowDisplayAffinity
+  //            with WDA_MONITOR (0x01) — the LEGACY flag. Modern
+  //            Windows.Graphics.Capture clients (OBS, Discord, Teams, Win11
+  //            Snipping Tool) ignore it. We override with
+  //            WDA_EXCLUDEFROMCAPTURE (0x11), the Win10 2004+ flag, which
+  //            makes the window invisible to ALL captures.
+  //            See src/main/win32.ts.
+  //
+  // Two reasons we apply the win32 flag from event handlers below rather than
+  // here at construction time:
+  //   1. show:false means the HWND may not be realized yet — calling
+  //      SetWindowDisplayAffinity on a zero handle silently no-ops.
+  //   2. Some Windows builds reset display affinity when the window is
+  //      minimized/restored. Reapplying on 'show' makes it sticky.
   mainWindow.setContentProtection(true);
-  log('window', 'setContentProtection(true) applied');
+  log('window', 'setContentProtection(true) applied (macOS-ready)');
 
-  // Don't reveal the window until the renderer has painted, otherwise the
-  // user sees a white flash before the dark UI loads.
+  const reapplyWin32Protection = (reason: string): void => {
+    const result = applyHardestContentProtection(mainWindow!);
+    log('window', `win32 content protection [${reason}] = ${result}`);
+  };
+
+  // Primary application: as soon as the renderer is loaded enough to show,
+  // the HWND definitely exists and the window is about to become visible.
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+    reapplyWin32Protection('ready-to-show');
   });
+
+  // Defensive reapplications. Cheap (single Win32 call) and covers every
+  // path that has historically broken display affinity:
+  mainWindow.on('show', () => reapplyWin32Protection('show'));
+  mainWindow.on('restore', () => reapplyWin32Protection('restore'));
+  mainWindow.on('focus', () => reapplyWin32Protection('focus'));
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -74,8 +99,17 @@ export async function createMainWindow(): Promise<BrowserWindow> {
 
 export function setPrivacy(enabled: boolean): boolean {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
-  mainWindow.setContentProtection(enabled);
-  log('window', `setContentProtection(${enabled})`);
+  // Order matters: enable both layers when turning on, disable both when off.
+  // On Mac only setContentProtection moves the needle; on Windows only the
+  // FFI call does. Calling both keeps the code branch-free.
+  if (enabled) {
+    mainWindow.setContentProtection(true);
+    applyHardestContentProtection(mainWindow);
+  } else {
+    mainWindow.setContentProtection(false);
+    clearContentProtection(mainWindow);
+  }
+  log('window', `privacy=${enabled}`);
   return enabled;
 }
 

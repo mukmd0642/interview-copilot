@@ -1,9 +1,16 @@
 import { useState, useEffect } from 'react';
 import { LoginForm } from './components/LoginForm.js';
+import { InterviewView } from './components/InterviewView.js';
+import { useShortcuts } from './lib/use-shortcuts.js';
 
 type View = 'loading' | 'login' | 'interview';
 
 export function App(): JSX.Element {
+  // Register browser-style keyboard accelerators (Ctrl+T/W/H, Alt+arrows,
+  // Ctrl+Shift+B). Installed at the App level so they work no matter
+  // which view is mounted.
+  useShortcuts();
+
   const [view, setView] = useState<View>('loading');
   const [, setEmail] = useState<string | null>(null);
 
@@ -39,49 +46,5 @@ export function App(): JSX.Element {
     );
   }
 
-  return <InterviewPlaceholder />;
-}
-
-// Placeholder until the next turn wires up the full panel layout, audio
-// capture, and transcription. Keeps the login → main app flow demoable.
-function InterviewPlaceholder(): JSX.Element {
-  return (
-    <div className="app-shell">
-      <div className="toolbar">
-        <button className="toolbar__btn toolbar__btn--primary">Setup</button>
-        <button className="toolbar__btn">Browser</button>
-        <button className="toolbar__btn">CC</button>
-        <div className="toolbar__status">
-          Signed in. The interview panels, audio capture, and transcription wire up in the next pass.
-        </div>
-        <button className="toolbar__btn toolbar__btn--privacy-on">Priv ON</button>
-      </div>
-      <div className="interview">
-        <div className="interview__left">
-          <div className="panel">
-            <div className="panel__header panel__header--them">INTERVIEWER</div>
-            <div className="panel__body">Waiting for transcription pipeline…</div>
-          </div>
-          <div className="panel">
-            <div className="panel__header panel__header--you">YOU</div>
-            <div className="panel__body" />
-          </div>
-        </div>
-        <div className="interview__right">
-          <div className="panel">
-            <div className="panel__header panel__header--answer">
-              <span className="panel__header__title">SUGGESTED ANSWER</span>
-            </div>
-            <div className="panel__body panel__body--answer">
-              Start CC to enable live answer suggestions.
-            </div>
-          </div>
-          <div className="panel">
-            <div className="panel__header panel__header--summary">KEY POINTS</div>
-            <div className="panel__body panel__body--summary" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <InterviewView />;
 }

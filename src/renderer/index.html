@@ -3,8 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP notes:
+        worker-src — AudioWorklet.addModule() is governed by this directive
+          (CSP3 §6.1: worklets are workers). We inline the pcm-worklet code
+          and load it via a blob: URL, so we MUST allow blob:. Without this,
+          Chromium aborts the worklet load with the misleading error
+          "The user aborted a request."
+        connect-src — ws: for Vite HMR (dev), https/wss for OpenAI + auth.
+    -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://api.openai.com https://resume-tailor-webapp.vercel.app wss://api.openai.com; media-src 'self' blob:;" />
+          content="default-src 'self';
+                   script-src 'self' 'unsafe-inline' 'unsafe-eval';
+                   worker-src 'self' blob:;
+                   style-src 'self' 'unsafe-inline';
+                   img-src 'self' data: blob: https:;
+                   connect-src 'self' ws: wss: https://api.openai.com https://resume-tailor-webapp.vercel.app;
+                   media-src 'self' blob:;" />
     <title>Interview Copilot</title>
   </head>
   <body>

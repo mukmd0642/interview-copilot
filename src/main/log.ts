@@ -45,7 +45,10 @@ export function q(s: string | null | undefined, max = 120): string {
 }
 
 export function sessionBoundary(label: string): void {
-  log('session', '─'.repeat(60));
+  // ASCII separator instead of U+2500 box-drawing — the file is UTF-8 either
+  // way, but Windows cmd defaults to CP-850 and mangles multibyte chars when
+  // we mirror to stderr in dev. Plain dashes render correctly everywhere.
+  log('session', '-'.repeat(60));
   log('session', `=== ${label} @ ${new Date().toISOString()} ===`);
 }
 

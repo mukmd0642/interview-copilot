@@ -78,6 +78,21 @@ const api = {
     subscribe(IPC.Events.Status, cb),
 
   onMicSilence: (cb: () => void): (() => void) => subscribe(IPC.Events.SilenceMic, cb),
+
+  // State changes that originate outside the renderer (global hotkeys etc.)
+  onTopMost: (cb: (enabled: boolean) => void): (() => void) =>
+    subscribe(IPC.Events.TopMost, cb),
+  onPrivacy: (cb: (enabled: boolean) => void): (() => void) =>
+    subscribe(IPC.Events.Privacy, cb),
+
+  /**
+   * Diagnostic log from the renderer. Goes straight to %APPDATA%/.../app.log
+   * via the main process. Use for catching errors that would otherwise
+   * disappear into the DevTools console.
+   */
+  log: (category: string, message: string): void => {
+    ipcRenderer.send(IPC.Diag.Log, { category, message });
+  },
 };
 
 function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {

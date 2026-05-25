@@ -2,7 +2,18 @@
 // Both main and renderer import from here so a typo can't drift the two ends.
 
 export type Source = 'mic' | 'system';
-export type Language = 'en' | 'es';
+
+/**
+ * Interview languages we support. All three use the Latin alphabet, which
+ * lets us reject non-Latin transcripts as model hallucinations (Whisper /
+ * gpt-4o-transcribe occasionally drop into Korean / Chinese / Arabic on
+ * low-signal segments). See transcription-controller's script filter.
+ *
+ * Display labels and the OpenAI API hint code live in src/shared/language.ts.
+ */
+export type Language = 'en' | 'es' | 'pt-BR';
+
+export const LANGUAGES: Language[] = ['en', 'es', 'pt-BR'];
 
 export interface LoginRequest {
   email: string;
@@ -27,8 +38,37 @@ export interface InterviewContext {
   resume: string;
 }
 
+/**
+ * How to capture the "interviewer" audio (the other side of the meeting).
+ *
+ *   { kind: 'desktop' }       → Chromium's desktopCapturer with
+ *                                chromeMediaSource: 'desktop'. Captures the
+ *                                full system audio mix. Works on Windows
+ *                                out of the box; returns a silent stream
+ *                                on macOS (Apple sandboxes system audio).
+ *
+ *   { kind: 'device', id: ID } → getUserMedia({ deviceId: id }). For Mac
+ *                                users this is BlackHole / Loopback —
+ *                                the user routes the OS audio output
+ *                                through a virtual input device, and we
+ *                                capture it like a regular microphone.
+ *
+ *   { kind: 'off' }            → Don't capture system audio at all. Only
+ *                                the candidate's mic is transcribed. Useful
+ *                                for solo practice or when the user is
+ *                                still setting up BlackHole.
+ */
+export type SystemAudioMode =
+  | { kind: 'desktop' }
+  | { kind: 'device'; deviceId: string; label?: string }
+  | { kind: 'off' };
+
+export type Theme = 'dark' | 'light';
+
 export interface Settings extends InterviewContext {
   language: Language;
+  systemAudio: SystemAudioMode;
+  theme: Theme;
 }
 
 export interface TranscriptEvent {
@@ -95,6 +135,13 @@ export const IPC = {
     SaveSrt: 'export:srt',
   },
 
+  // Renderer → Main (one-way diagnostic logging — surfaces JS errors into
+  // %APPDATA%/interview-copilot/app.log so we don't have to ask the user
+  // to open DevTools for every issue).
+  Diag: {
+    Log: 'diag:log',
+  },
+
   // Main → Renderer (send)
   Events: {
     Transcript: 'event:transcript', // payload: TranscriptEvent
@@ -102,5 +149,10 @@ export const IPC = {
     Summary: 'event:summary',       // payload: string
     Status: 'event:status',         // payload: CaptionStatus
     SilenceMic: 'event:silenceMic',
+    // Fired when window state changes outside the renderer (e.g. global
+    // hotkey toggling pin). Renderer uses these to keep toolbar buttons
+    // in sync with reality.
+    TopMost: 'event:topmost',       // payload: boolean
+    Privacy: 'event:privacy',       // payload: boolean
   },
 } as const;
