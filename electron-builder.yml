@@ -1,0 +1,31 @@
+appId: com.interviewcopilot.app
+productName: Interview Copilot
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/**/{CHANGELOG.md,README.md,readme.md,LICENSE,LICENSE.md,license.md,*.d.ts}"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.productivity
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Privacy: capturing audio from the embedded webview does NOT require these
+  # entitlements, but capturing the candidate's microphone does. ScreenCaptureKit
+  # for system-wide audio (future) would also need NSScreenCaptureUsageDescription.
+  extendInfo:
+    NSMicrophoneUsageDescription: "Interview Copilot needs microphone access to transcribe what you say during your interview."
+    NSCameraUsageDescription: "Camera access is not required; this declaration prevents getUserMedia from failing on systems with restrictive defaults."
