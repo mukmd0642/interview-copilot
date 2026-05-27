@@ -20,16 +20,24 @@ jobs:
       - run: npm ci
 
       - name: Build (arm64 + x64 DMG)
-        run: npm run build:mac
-        env:
-          # electron-builder picks these up automatically when present.
-          # Leave the secrets unset to produce an unsigned build; set them
-          # in repo Settings → Secrets to sign + notarize.
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # GitHub Actions surfaces unset secrets as empty strings, not unset
+        # vars. On macOS, electron-builder reads CSC_LINK="" as a literal
+        # path and crashes ("not a file"). So only export the signing creds
+        # when they're actually populated; otherwise force-disable signing
+        # via CSC_IDENTITY_AUTO_DISCOVERY=false. Set MAC_CSC_LINK in repo
+        # Settings → Secrets to enable signing + notarization.
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.MAC_CSC_LINK }}" ]; then
+            export CSC_LINK="${{ secrets.MAC_CSC_LINK }}"
+            export CSC_KEY_PASSWORD="${{ secrets.MAC_CSC_KEY_PASSWORD }}"
+            export APPLE_ID="${{ secrets.APPLE_ID }}"
+            export APPLE_APP_SPECIFIC_PASSWORD="${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"
+            export APPLE_TEAM_ID="${{ secrets.APPLE_TEAM_ID }}"
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npm run build:mac
 
       - uses: actions/upload-artifact@v4
         with:
