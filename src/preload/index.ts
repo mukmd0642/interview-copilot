@@ -11,6 +11,8 @@ import {
   type CaptionStatus,
   type InterviewContext,
   type Language,
+  type AnswerStyle,
+  type AppAction,
 } from '../shared/ipc.js';
 
 // Single typed surface exposed on window.api. Renderer code never touches
@@ -59,6 +61,8 @@ const api = {
       ipcRenderer.invoke(IPC.Engine.SetContext, ctx),
     setLanguage: (language: Language): Promise<void> =>
       ipcRenderer.invoke(IPC.Engine.SetLanguage, language),
+    setStyle: (style: AnswerStyle): Promise<void> =>
+      ipcRenderer.invoke(IPC.Engine.SetStyle, style),
     toggleAnswers: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke(IPC.Engine.ToggleAnswers, enabled),
   },
@@ -84,6 +88,11 @@ const api = {
     subscribe(IPC.Events.TopMost, cb),
   onPrivacy: (cb: (enabled: boolean) => void): (() => void) =>
     subscribe(IPC.Events.Privacy, cb),
+
+  // Browser-style shortcut intercepted by main from inside a <webview>.
+  // Renderer dispatches it the same way it would for an in-document keydown.
+  onWebviewShortcut: (cb: (action: AppAction) => void): (() => void) =>
+    subscribe(IPC.Events.WebviewShortcut, cb),
 
   /**
    * Diagnostic log from the renderer. Goes straight to %APPDATA%/.../app.log

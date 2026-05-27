@@ -65,10 +65,30 @@ export type SystemAudioMode =
 
 export type Theme = 'dark' | 'light';
 
+/**
+ * Answer style controls how gpt-5 formats suggested answers.
+ *
+ *   'informal' (default) — flowing spoken-prose, conversational tone with
+ *     contractions, bullets only for genuine lists. Matches the WinForms
+ *     build and is best for live behavioural / experience / culture
+ *     questions the candidate reads aloud.
+ *
+ *   'formal' — structured, document-style answers. Lead with a one-line
+ *     direct answer, then bullets for details / steps / trade-offs /
+ *     comparisons. Brief section labels OK ("Background:", "What I did:",
+ *     "Result:"). Useful for technical interviews where the candidate
+ *     wants to dictate structured points or for take-home / panel rounds.
+ *
+ * Both styles still write speakable sentences — even formal answers get
+ * read aloud, just in a more structured way.
+ */
+export type AnswerStyle = 'informal' | 'formal';
+
 export interface Settings extends InterviewContext {
   language: Language;
   systemAudio: SystemAudioMode;
   theme: Theme;
+  answerStyle: AnswerStyle;
 }
 
 export interface TranscriptEvent {
@@ -128,6 +148,7 @@ export const IPC = {
   Engine: {
     SetContext: 'engine:setContext', // payload: InterviewContext
     SetLanguage: 'engine:setLanguage', // payload: Language
+    SetStyle: 'engine:setStyle',     // payload: AnswerStyle
     ToggleAnswers: 'engine:toggleAnswers', // payload: boolean
   },
   Export: {
@@ -142,6 +163,21 @@ export const IPC = {
     Log: 'diag:log',
   },
 
+  // Main → Renderer (send), continued
+  // ──────────────────────────────────────────────────────────────────────
+  // Webview shortcut dispatch
+  //
+  // When a <webview> has focus, keystrokes happen inside that webview's
+  // renderer process and our window-level keydown listener never sees
+  // them. Main process intercepts via `before-input-event`, matches the
+  // input to one of our app actions, and pushes the action name to the
+  // renderer over this channel. The renderer dispatches it the same way
+  // it would for a native keydown.
+  // ──────────────────────────────────────────────────────────────────────
+
+  /** Action names produced by either renderer keydown or webview-shortcut. */
+  // (declared as union below — placed here so the IPC table stays compact)
+
   // Main → Renderer (send)
   Events: {
     Transcript: 'event:transcript', // payload: TranscriptEvent
@@ -154,5 +190,24 @@ export const IPC = {
     // in sync with reality.
     TopMost: 'event:topmost',       // payload: boolean
     Privacy: 'event:privacy',       // payload: boolean
+    // Webview-focused keystrokes that main intercepted and matched to an
+    // app action. Payload: AppAction.
+    WebviewShortcut: 'event:webviewShortcut',
   },
 } as const;
+
+/**
+ * Browser-style actions that fire from either renderer keydown (when the
+ * top-level page has focus) or from webview interception (when focus is
+ * inside an embedded <webview>). Keeping action names as strings — not as
+ * a typed enum sent over IPC — means we don't need to share runtime enum
+ * values across the process boundary; just the string union.
+ */
+export type AppAction =
+  | 'new-tab'
+  | 'close-tab'
+  | 'toggle-history'
+  | 'cycle-tab'
+  | 'toggle-browser'
+  | 'go-back'
+  | 'go-forward';

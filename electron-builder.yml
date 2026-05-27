@@ -8,15 +8,40 @@ files:
   - package.json
   - "!**/*.map"
   - "!**/node_modules/**/{CHANGELOG.md,README.md,readme.md,LICENSE,LICENSE.md,license.md,*.d.ts}"
+
+# koffi loads its native .node binaries via require() at runtime. When
+# everything is packed into app.asar, Node can't open a .node file that
+# lives inside an archive — it has to be on disk. asarUnpack extracts
+# koffi to app.asar.unpacked/node_modules/koffi/ so the FFI call that
+# applies WDA_EXCLUDEFROMCAPTURE works in the packaged build.
+asarUnpack:
+  - "**/node_modules/koffi/**"
 win:
   target:
+    # NSIS installer — the "normal" install path (Program Files / shortcut).
     - target: nsis
       arch: [x64]
-  artifactName: ${productName}-${version}-setup.${ext}
+    # Portable — single .exe that extracts to %TEMP% on launch. No registry,
+    # no install dir, no admin prompt. Settings still persist via
+    # app.getPath('userData') = %APPDATA%/interview-copilot/, so the user's
+    # API key / JD / resume / answer style all survive across runs.
+    - target: portable
+      arch: [x64]
+  # NOTE: per-target artifactName must live inside each target's own block
+  # (nsis: / portable:) — not here at the win: level — otherwise both
+  # outputs collide on the same filename.
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-${version}-setup.${ext}
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+  # We don't ship a splash image; the extraction usually finishes in well
+  # under a second so the user sees the main window almost immediately.
+  # Leaving unpackDirName at its default (a per-build hash) means multiple
+  # versions can run side-by-side without trampling each other's %TEMP%
+  # extraction directory.
 mac:
   target:
     - target: dmg

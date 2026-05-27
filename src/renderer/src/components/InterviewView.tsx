@@ -8,7 +8,7 @@ import { SetupDialog } from './SetupDialog.js';
 import { BrowserView } from './BrowserView.js';
 import { HistoryDialog } from './HistoryDialog.js';
 import { startCapture } from '../lib/audio-capture.js';
-import type { SystemAudioMode } from '../../../shared/ipc';
+import type { SystemAudioMode, AnswerStyle } from '../../../shared/ipc';
 
 export function InterviewView(): JSX.Element {
   const setLanguage = useApp((s) => s.setLanguage);
@@ -34,6 +34,7 @@ export function InterviewView(): JSX.Element {
     jd: string;
     resume: string;
     systemAudio: SystemAudioMode;
+    answerStyle: AnswerStyle;
   }>({
     jd: '',
     resume: '',
@@ -41,6 +42,7 @@ export function InterviewView(): JSX.Element {
     // because it means "don't try to open anything" — we never start CC
     // before settings.get() resolves.
     systemAudio: { kind: 'off' },
+    answerStyle: 'informal',
   });
 
   // Capture handle held in a ref so the cleanup effect can reach it
@@ -66,6 +68,7 @@ export function InterviewView(): JSX.Element {
         jd: s.jobDescription,
         resume: s.resume,
         systemAudio: s.systemAudio,
+        answerStyle: s.answerStyle,
       });
       applyStatus({
         message: !s.jobDescription && !s.resume
@@ -106,6 +109,21 @@ export function InterviewView(): JSX.Element {
     const offSummary = window.api.onSummary((text) => applySummary(text));
     const offStatus = window.api.onStatus((s) => applyStatus(s));
 
+    // Mic silence = candidate paused. If a new answer has been buffered
+    // (e.g. interviewer asked a follow-up while the candidate was still
+    // reading the previous suggestion), flush it now — the candidate is
+    // ready for the next thing without having to look up and click.
+    // Pulling state via getState() inside the handler avoids stale-closure
+    // hazards; otherwise the subscription would lock in pendingReady from
+    // the moment of mount.
+    const offMicSilence = window.api.onMicSilence(() => {
+      const st = useApp.getState();
+      if (st.pendingReady) {
+        window.api.log('cc', 'mic silence → auto-flushing pending answer');
+        st.flushPendingAnswer();
+      }
+    });
+
     return () => {
       mounted = false;
       offTopMost();
@@ -114,6 +132,7 @@ export function InterviewView(): JSX.Element {
       offAnswer();
       offSummary();
       offStatus();
+      offMicSilence();
     };
   }, [setLanguage, applyFastDelta, applyFastFinal, applyAccurateFinal, applyAnswerChunk, applySummary, applyStatus]);
 
@@ -196,18 +215,21 @@ export function InterviewView(): JSX.Element {
   const handleSetupSave = async (
     jd: string,
     resume: string,
-    systemAudio: SystemAudioMode
+    systemAudio: SystemAudioMode,
+    answerStyle: AnswerStyle
   ): Promise<void> => {
-    setSetupValues({ jd, resume, systemAudio });
-    // setContext persists JD+resume; we also need to persist the audio
-    // source choice independently so it survives restarts even if the
-    // user never touches Setup again.
+    setSetupValues({ jd, resume, systemAudio, answerStyle });
+    // setContext persists JD+resume to the engine immediately; we also
+    // persist the audio source choice independently. answerStyle goes
+    // through its own setStyle so the engine picks it up mid-session
+    // without restarting the realtime websockets.
     await window.api.engine.setContext({ jobDescription: jd, resume });
+    await window.api.engine.setStyle(answerStyle);
     await window.api.settings.set({ systemAudio });
     applyStatus({
       message: !jd && !resume
         ? 'No context set  ·  Click CC to start'
-        : 'Job context updated  ·  Click CC to start',
+        : `Job context updated  ·  ${answerStyle === 'formal' ? 'Formal' : 'Informal'} style  ·  Click CC to start`,
       level: 'info',
     });
   };
@@ -242,6 +264,7 @@ export function InterviewView(): JSX.Element {
         initialJd={setupValues.jd}
         initialResume={setupValues.resume}
         initialSystemAudio={setupValues.systemAudio}
+        initialAnswerStyle={setupValues.answerStyle}
         onClose={() => setSetupOpen(false)}
         onSave={handleSetupSave}
       />

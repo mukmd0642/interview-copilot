@@ -280,8 +280,29 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .panel__header--them    { background: var(--them-tint);  color: var(--them-fg); }
 .panel__header--you     { background: var(--you-tint);   color: var(--you-fg); }
-.panel__header--answer  { background: var(--answer-header); color: var(--you-fg); display: flex; align-items: center; }
+.panel__header--answer  { background: var(--answer-header); color: var(--you-fg); display: flex; align-items: center; transition: background-color 200ms ease; }
 .panel__header--summary { background: var(--summary-header); color: var(--summary-header-fg); }
+
+/* When a new answer is buffered behind the visible one, the header pulses
+   so a candidate reading the current answer aloud catches it in peripheral
+   vision without needing to look up. Animation is intentionally slow and
+   low-contrast — strong enough to notice, soft enough not to pull focus
+   from the text being read. */
+@keyframes pendingPulse {
+  0%, 100% { background-color: var(--accent-warn); }
+  50%      { background-color: var(--answer-header); }
+}
+.panel__header--pending {
+  animation: pendingPulse 1.4s ease-in-out infinite;
+}
+.panel__header__btn--pending {
+  background: var(--accent-warn);
+  color: white;
+  font-weight: 700;
+}
+.panel__header__btn--pending:hover {
+  filter: brightness(1.15);
+}
 .panel__header__title { flex: 1; }
 .panel__header__btn   {
   padding: 6px 12px;
@@ -398,6 +419,47 @@ button:disabled { opacity: 0.5; cursor: default; }
 .dlg__hint--warn {
   border-left-color: var(--accent-warn);
   background: var(--hint-warn-bg);
+}
+
+/* ── Answer-style picker (two side-by-side cards) ──────────────────────── */
+.dlg__style-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.dlg__style-card {
+  /* Reset button defaults so the card looks like a card, not a button.
+     Background still flips on hover/active for affordance. */
+  text-align: left;
+  background: var(--bg-elev2);
+  color: var(--fg);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 12px 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 120ms, background-color 120ms;
+}
+.dlg__style-card:hover {
+  background: var(--hover-soft);
+}
+.dlg__style-card--active {
+  background: var(--bg-elev);
+  border-color: var(--accent);
+}
+.dlg__style-card__title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: var(--fg);
+}
+.dlg__style-card--active .dlg__style-card__title {
+  color: var(--accent-2);
+}
+.dlg__style-card__desc {
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.45;
 }
 
 /* ── History list ──────────────────────────────────────────────────────── */

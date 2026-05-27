@@ -2,6 +2,7 @@ import { app, BrowserWindow, desktopCapturer, Menu, session } from 'electron';
 import { createMainWindow, ensureSingleInstance } from './window.js';
 import { registerIpc } from './ipc.js';
 import { registerGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts.js';
+import { installWebviewShortcutHook } from './webview-shortcuts.js';
 import { sessionBoundary, log } from './log.js';
 
 ensureSingleInstance();
@@ -36,6 +37,12 @@ app.whenReady().then(async () => {
   }
 
   registerIpc();
+
+  // Hook before-input-event on every <webview> webContents so browser-style
+  // shortcuts (Ctrl+T / Ctrl+W / Ctrl+H / Alt+arrows / Ctrl+Shift+B) work
+  // even when focus is inside the embedded page. The listener attaches
+  // automatically as new webviews are created.
+  installWebviewShortcutHook();
 
   // Grant the mic + display-capture permissions automatically when our own
   // renderer asks. OS-level prompts (NSMicrophoneUsageDescription on Mac,

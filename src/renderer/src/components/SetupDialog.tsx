@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react';
 import { listAudioInputs, type AudioInputDevice } from '../lib/audio-devices.js';
-import type { SystemAudioMode } from '../../../shared/ipc';
+import type { SystemAudioMode, AnswerStyle } from '../../../shared/ipc';
 
 interface Props {
   initialJd: string;
   initialResume: string;
   initialSystemAudio: SystemAudioMode;
+  initialAnswerStyle: AnswerStyle;
   open: boolean;
   onClose: () => void;
-  onSave: (jd: string, resume: string, systemAudio: SystemAudioMode) => void;
+  onSave: (
+    jd: string,
+    resume: string,
+    systemAudio: SystemAudioMode,
+    answerStyle: AnswerStyle
+  ) => void;
 }
 
 const isMac = navigator.platform.toLowerCase().includes('mac');
@@ -17,6 +23,7 @@ export function SetupDialog({
   initialJd,
   initialResume,
   initialSystemAudio,
+  initialAnswerStyle,
   open,
   onClose,
   onSave,
@@ -24,6 +31,7 @@ export function SetupDialog({
   const [jd, setJd] = useState(initialJd);
   const [resume, setResume] = useState(initialResume);
   const [audio, setAudio] = useState<SystemAudioMode>(initialSystemAudio);
+  const [style, setStyle] = useState<AnswerStyle>(initialAnswerStyle);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
 
@@ -32,8 +40,9 @@ export function SetupDialog({
       setJd(initialJd);
       setResume(initialResume);
       setAudio(initialSystemAudio);
+      setStyle(initialAnswerStyle);
     }
-  }, [open, initialJd, initialResume, initialSystemAudio]);
+  }, [open, initialJd, initialResume, initialSystemAudio, initialAnswerStyle]);
 
   // Refresh device list whenever the dialog opens. Browsers also fire a
   // `devicechange` event we could subscribe to, but a refresh on open
@@ -160,13 +169,41 @@ export function SetupDialog({
               Mic-only mode. The interviewer side will not be captioned and no answer suggestions will be generated.
             </div>
           )}
+
+          <label className="dlg__label">ANSWER STYLE</label>
+          <div className="dlg__style-row">
+            <button
+              type="button"
+              className={`dlg__style-card${style === 'informal' ? ' dlg__style-card--active' : ''}`}
+              onClick={() => setStyle('informal')}
+            >
+              <div className="dlg__style-card__title">Informal</div>
+              <div className="dlg__style-card__desc">
+                Natural, speaking-ready prose. Conversational tone, contractions, flowing
+                paragraphs. Bullets only for genuine lists. Best for behavioural / experience
+                / culture questions you read aloud.
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`dlg__style-card${style === 'formal' ? ' dlg__style-card--active' : ''}`}
+              onClick={() => setStyle('formal')}
+            >
+              <div className="dlg__style-card__title">Formal</div>
+              <div className="dlg__style-card__desc">
+                Structured with bullets. One-line opening answer, then bulleted details,
+                trade-offs and steps. Section labels (Background, What I did, Result) for
+                deep-dives. Useful for technical / panel / take-home contexts.
+              </div>
+            </button>
+          </div>
         </div>
         <div className="dlg__bar">
           <button className="dlg__btn" onClick={onClose}>Cancel</button>
           <button
             className="dlg__btn dlg__btn--primary"
             onClick={() => {
-              onSave(jd.trim(), resume.trim(), audio);
+              onSave(jd.trim(), resume.trim(), audio, style);
               onClose();
             }}
           >

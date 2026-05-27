@@ -5,7 +5,7 @@
 // reference build the user has been tuning.
 
 import { log, q } from '../log.js';
-import type { Language } from '../../shared/ipc.js';
+import type { Language, AnswerStyle } from '../../shared/ipc.js';
 import { languagePromptName } from '../../shared/language.js';
 
 export interface AnswerEvents {
@@ -23,14 +23,48 @@ interface ContextTurn {
   text: string;
 }
 
-// ── Constants mirroring the C# build ────────────────────────────────────────
-const MAX_CONTEXT = 30;          // turns kept; only the last 6 enter the prompt
-const SETTLE_AMBIGUOUS_MS = 3500; // escape window for ambiguous interviewer text
-const MIN_WORDS_TO_FIRE = 3;     // ignore 1-2 word fragments (likely Whisper noise)
+// ── Settle / fire constants ────────────────────────────────────────────────
+//
+// The settle timer is the dominant latency contributor between "interviewer
+// stops talking" and "first character of answer on screen." Old build used
+// a single 3500 ms escape window — fine for hedging speakers, brutal for
+// punchy ones who want a fast response.
+//
+// Two-clock approach:
+//   • SETTLE_QUESTION_MS — fast path for utterances that already look like
+//     questions (prefix like "How/What/Why/Tell me/Walk me/Describe…",
+//     ends with "?", or contains "?"). Fires fast because waiting longer
+//     rarely changes the answer.
+//   • SETTLE_AMBIGUOUS_MS — soft window for non-question-shaped text. Reset
+//     on every fresh delta so a slowly-arriving question accumulates fully.
+//   • SETTLE_HARD_CAP_MS — measured from when the accumulator started, NOT
+//     reset on new text. Guarantees we eventually fire even if a hedging
+//     speaker keeps emitting fragments forever.
+//
+// MIN_WORDS_TO_FIRE is split: still 3 for ambiguous text (filters Whisper
+// hallucinations like "you", "okay"), but 1 for question-shaped text so
+// "Why MongoDB?" / "Scale?" / "Tradeoffs?" stop being silently swallowed.
+
+const MAX_CONTEXT = 30;             // turns kept; only the last 6 enter the prompt
+const SETTLE_QUESTION_MS = 800;     // question-shaped utterances — fire fast
+const SETTLE_AMBIGUOUS_MS = 1500;   // non-question-shaped — wait a bit longer for more text
+const SETTLE_HARD_CAP_MS = 3500;    // absolute max from accumulator start
+const MIN_WORDS_AMBIGUOUS = 3;      // filter 1-2 word fragments (likely noise)
+const MIN_WORDS_QUESTION_SHAPED = 1; // allow "Tradeoffs?" / "Scale?" to fire
 
 const NOISE_WORDS = new Set([
   'um', 'uh', 'hmm', 'hm', 'yeah', 'yes', 'no',
   'ok', 'okay', 'right', 'sure', 'you', 'bye',
+]);
+
+// Words that, when they START an utterance, mark it as question-shaped.
+// Lowercased; checked against the first whitespace-delimited token after
+// stripping leading punctuation.
+const QUESTION_PREFIXES = new Set([
+  'how', 'what', 'why', 'when', 'where', 'which', 'who', 'whose', 'whom',
+  'tell', 'walk', 'describe', 'explain', 'give', 'share',
+  'can', 'could', 'would', 'should', 'will', 'do', 'does', 'did',
+  'are', 'is', 'was', 'were', 'has', 'have', 'had',
 ]);
 
 function isNoise(text: string): boolean {
@@ -40,6 +74,22 @@ function isNoise(text: string): boolean {
 
 function countWords(text: string): number {
   return text.split(/[\s\t\n\r]+/).filter((s) => s.length > 0).length;
+}
+
+/**
+ * Returns true if the utterance is shaped like a question — either it
+ * starts with a known question word, or it contains a literal "?", or
+ * it ends with one. Used to pick the fast settle path and to lower the
+ * min-words floor so genuinely short interviewer questions can fire.
+ */
+function isQuestionShaped(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.includes('?')) return true;
+  // First token, lowercased, leading punctuation stripped.
+  const firstToken = t.split(/\s+/, 1)[0]?.toLowerCase().replace(/^[^a-z]+/, '');
+  if (firstToken && QUESTION_PREFIXES.has(firstToken)) return true;
+  return false;
 }
 
 /** Last char tells us whether to fire immediately or wait for more text. */
@@ -61,6 +111,7 @@ export class InterviewEngine {
   private resume = '';
   private summary = '';
   private language: Language;
+  private answerStyle: AnswerStyle = 'informal';
   private answersEnabled = true;
 
   private context: ContextTurn[] = [];
@@ -74,7 +125,9 @@ export class InterviewEngine {
   // Settle/fire pipeline state — whisper streams a multi-sentence question
   // as multiple short finals separated by pauses, so we coalesce.
   private pendingQuestion = '';
-  private settleTimer: NodeJS.Timeout | null = null;
+  private pendingQuestionStartAt = 0;      // ms when accumulator went non-empty
+  private settleTimer: NodeJS.Timeout | null = null; // soft timer — resets on new text
+  private hardCapTimer: NodeJS.Timeout | null = null; // hard timer — fires from start, never resets
 
   // Cancellable answer generation. New questions cancel any in-flight gen.
   private genAbort: AbortController | null = null;
@@ -98,6 +151,12 @@ export class InterviewEngine {
     this.language = language;
   }
 
+  setAnswerStyle(style: AnswerStyle): void {
+    if (this.answerStyle === style) return;
+    this.answerStyle = style;
+    this.log(`answer style → ${style}`);
+  }
+
   setAnswersEnabled(enabled: boolean): void {
     this.answersEnabled = enabled;
     if (!enabled) this.cancelInFlight('answers-disabled');
@@ -119,48 +178,88 @@ export class InterviewEngine {
       return;
     }
 
+    // Append to accumulator; remember when this accumulation started so the
+    // hard cap can fire on a true elapsed-time basis.
+    const wasEmpty = this.pendingQuestion.length === 0;
     if (this.pendingQuestion) this.pendingQuestion += ' ';
     this.pendingQuestion += text;
+    if (wasEmpty) this.pendingQuestionStartAt = Date.now();
+
     const snapshot = this.pendingQuestion;
     const complete = looksComplete(snapshot);
 
-    // Always cancel any pending settle: either we fire now, or we restart
-    // the settle window with the new accumulated text.
+    // Always cancel any pending SOFT settle: either we fire now, or we
+    // restart the soft window with the new accumulated text. The HARD cap
+    // is left running — it measures absolute elapsed time from when the
+    // accumulator went non-empty, so resetting it would defeat its purpose.
     if (this.settleTimer) {
       clearTimeout(this.settleTimer);
       this.settleTimer = null;
     }
 
     if (complete) {
-      const accumulated = this.pendingQuestion.trim();
-      this.pendingQuestion = '';
-      const w = countWords(accumulated);
-      this.log(`notifyInterviewer FIRE-IMMEDIATE (${w} words): ${q(accumulated, 100)}`);
-      if (w < MIN_WORDS_TO_FIRE) {
-        this.log(`fire SKIP (too short: ${w} < ${MIN_WORDS_TO_FIRE})`);
-        return;
-      }
-      this.addEntry('system', accumulated);
-      this.startGeneration(accumulated);
+      this.fireAccumulated('FIRE-IMMEDIATE (looks-complete)');
       return;
     }
 
-    this.log(`notifyInterviewer ENQUEUE: ${q(text)}; pending=${snapshot.length} chars; settle in ${SETTLE_AMBIGUOUS_MS}ms`);
+    // Pick the soft settle window. Question-shaped text fires fast because
+    // (a) it's almost certainly a complete-enough question already, and
+    // (b) the cost of being wrong (interviewer adds more text) is just
+    // cancel-and-restart, which the buffer pattern handles cleanly now.
+    const questionShaped = isQuestionShaped(snapshot);
+    const softMs = questionShaped ? SETTLE_QUESTION_MS : SETTLE_AMBIGUOUS_MS;
+    this.log(
+      `notifyInterviewer ENQUEUE: ${q(text)}; pending=${snapshot.length} chars; ` +
+      `shape=${questionShaped ? 'question' : 'ambiguous'}; soft-settle ${softMs}ms`
+    );
+
     this.settleTimer = setTimeout(() => {
       this.settleTimer = null;
-      if (this.disposed) return;
-      const accumulated = this.pendingQuestion.trim();
-      this.pendingQuestion = '';
-      if (!accumulated) return;
-      const w = countWords(accumulated);
-      this.log(`settle FIRED; accumulated=${q(accumulated)}`);
-      if (w < MIN_WORDS_TO_FIRE) {
-        this.log(`settle SKIP (too short: ${w} words)`);
-        return;
-      }
-      this.addEntry('system', accumulated);
-      this.startGeneration(accumulated);
-    }, SETTLE_AMBIGUOUS_MS);
+      this.fireAccumulated('soft-settle');
+    }, softMs);
+
+    // Arm the hard cap once per accumulation. It does NOT reset on fresh
+    // text — that's the whole point: even if a slow speaker emits a new
+    // clause every 1.4 s (keeping the soft timer alive forever), the hard
+    // cap eventually fires and stops the user staring at a frozen UI.
+    if (!this.hardCapTimer) {
+      const elapsed = Date.now() - this.pendingQuestionStartAt;
+      const remaining = Math.max(0, SETTLE_HARD_CAP_MS - elapsed);
+      this.hardCapTimer = setTimeout(() => {
+        this.hardCapTimer = null;
+        // Only fire via the hard cap if the soft timer didn't beat us to it.
+        if (this.pendingQuestion.length === 0) return;
+        this.fireAccumulated('HARD-CAP');
+      }, remaining);
+    }
+  }
+
+  /**
+   * Common path for firing the accumulated question: clear timers, validate
+   * min-words (with relaxed floor for question-shaped text), add to context,
+   * kick off generation.
+   */
+  private fireAccumulated(reason: string): void {
+    if (this.disposed) return;
+    if (this.settleTimer) { clearTimeout(this.settleTimer); this.settleTimer = null; }
+    if (this.hardCapTimer) { clearTimeout(this.hardCapTimer); this.hardCapTimer = null; }
+
+    const accumulated = this.pendingQuestion.trim();
+    this.pendingQuestion = '';
+    this.pendingQuestionStartAt = 0;
+    if (!accumulated) return;
+
+    const w = countWords(accumulated);
+    const questionShaped = isQuestionShaped(accumulated);
+    const floor = questionShaped ? MIN_WORDS_QUESTION_SHAPED : MIN_WORDS_AMBIGUOUS;
+
+    this.log(`fire [${reason}] (${w} words, shape=${questionShaped ? 'question' : 'ambiguous'}): ${q(accumulated, 100)}`);
+    if (w < floor) {
+      this.log(`fire SKIP (too short: ${w} < ${floor})`);
+      return;
+    }
+    this.addEntry('system', accumulated);
+    this.startGeneration(accumulated);
   }
 
   notifyCandidateSpoke(text: string): void {
@@ -187,7 +286,12 @@ export class InterviewEngine {
       return;
     }
     // Cancel previous in-flight call so the user always sees the answer for
-    // the LATEST question. Cheap on the wire — partial SSE is just dropped.
+    // the LATEST question. The reason 'new-question' tells the cancelled
+    // gen's catch handler NOT to emit a DONE — because the new gen is
+    // about to emit its own START, and ordering DONE before START is what
+    // tells the store to enter buffer mode. Without this, the new START
+    // arrives while answerStreaming is still true and the store wipes
+    // the visible answer the candidate is mid-reading.
     this.cancelInFlight('new-question');
     this.genAbort = new AbortController();
     const signal = this.genAbort.signal;
@@ -197,7 +301,9 @@ export class InterviewEngine {
   private cancelInFlight(reason: string): void {
     if (this.genAbort && !this.genAbort.signal.aborted) {
       this.log(`cancel in-flight (${reason})`);
-      this.genAbort.abort();
+      // AbortController.abort(reason) attaches the reason to signal.reason,
+      // which the in-flight generateAnswer's catch handler checks.
+      this.genAbort.abort(reason);
     }
     this.genAbort = null;
   }
@@ -242,8 +348,20 @@ export class InterviewEngine {
       this.events.onAnswerChunk('', true);
     } catch (err) {
       if (signal.aborted) {
-        this.log(`generateAnswer aborted after ${Date.now() - startedAt}ms; partial=${acc.join('').length} chars`);
-        this.events.onAnswerChunk('', true);
+        const reason = signal.reason as string | undefined;
+        this.log(
+          `generateAnswer aborted after ${Date.now() - startedAt}ms ` +
+          `(reason=${reason ?? 'unspecified'}); partial=${acc.join('').length} chars`
+        );
+        // If we were aborted because a NEW question is starting, the new
+        // generation will emit its own START momentarily. Emitting DONE
+        // here would race that START and cause the store to enter the
+        // wrong branch (wiping the visible answer the candidate is reading).
+        // Other abort reasons (dispose, answers-disabled) still need DONE
+        // so the renderer's answerStreaming flag flips off cleanly.
+        if (reason !== 'new-question') {
+          this.events.onAnswerChunk('', true);
+        }
         return;
       }
       const msg = err instanceof Error ? err.message : String(err);
@@ -268,12 +386,29 @@ export class InterviewEngine {
     sys.push('');
     sys.push('Your goal: generate the answer that gets them the job offer.');
     sys.push('');
-    sys.push('FORMAT — critical because they read it on a screen and speak it out loud while being watched:');
-    sys.push('  - The FIRST sentence must answer the question on its own. If interrupted there, they have still answered.');
-    sys.push('  - Default to spoken prose in short paragraphs of 2-4 sentences separated by a blank line. Each paragraph is one natural pause where the candidate can breathe.');
-    sys.push("  - Sentences are short and speakable — no nested clauses, no sentence over 25 words. Use plain conversational English with contractions ('we'd', 'didn't', 'I've'). It must read out loud naturally, exactly as written.");
-    sys.push("  - Use bullets ONLY when the answer is genuinely a list of discrete items: 'what tools have you used', 'list the steps', 'X vs Y', 'what are the tradeoffs of A vs B', 'what frameworks/languages do you know'. For these, bullets help the candidate scan and read smoothly.");
-    sys.push("  - Conceptual technical explanations ('how does X work', 'walk me through your design', 'how would you architect this', 'why did you choose Y') are spoken prose, NOT bullets — the candidate is explaining the system out loud, not reading items off a list. Use natural connective tissue ('the reason that matters is…', 'where this gets tricky is…', 'so what we did was…').");
+
+    // Style block — switches between two FORMAT regimes:
+    //   informal: flowing spoken prose (the WinForms default)
+    //   formal:   structured with bullets and brief section labels
+    // The downstream LENGTH / DEPTH / REALISM / BY-QUESTION-TYPE blocks
+    // describe content goals and apply to both styles.
+    if (this.answerStyle === 'formal') {
+      sys.push('FORMAT — structured, document-style answers (the candidate still reads aloud, so sentences must be speakable):');
+      sys.push('  - The FIRST line is a one-sentence direct answer, bold-tone. If interrupted there, they have still answered.');
+      sys.push('  - Use bullets LIBERALLY to organize details, steps, trade-offs, examples, comparisons. Default to bullets after the opening sentence for everything except short factual answers.');
+      sys.push('  - For behavioral / experience / project deep-dives, structure the body under brief inline section labels: **Background**, **What I owned**, **Where it got hard**, **What I did**, **Result**. Each section is a tight bullet group of 1-3 items.');
+      sys.push('  - Bullets are COMPLETE SENTENCES, not fragments. The candidate is speaking each one — fragments sound clipped.');
+      sys.push('  - Tone: clear, professional, dense — but still speakable. No nested clauses, no sentence over 25 words. Plain English; contractions OK ("we\'d", "didn\'t").');
+      sys.push("  - Conceptual technical explanations still get prose for the central reasoning, but the trade-offs and the alternatives considered should be enumerated as bullets.");
+      sys.push('  - The BY QUESTION TYPE section below describes CONTENT goals (what to cover, what to include). When that section says things like "Narrative prose, no bullets," that is the informal-style directive; in THIS formal style, you still cover the same content but format it per these rules — opening sentence + bullets + section labels.');
+    } else {
+      sys.push('FORMAT — critical because they read it on a screen and speak it out loud while being watched:');
+      sys.push('  - The FIRST sentence must answer the question on its own. If interrupted there, they have still answered.');
+      sys.push('  - Default to spoken prose in short paragraphs of 2-4 sentences separated by a blank line. Each paragraph is one natural pause where the candidate can breathe.');
+      sys.push("  - Sentences are short and speakable — no nested clauses, no sentence over 25 words. Use plain conversational English with contractions ('we'd', 'didn't', 'I've'). It must read out loud naturally, exactly as written.");
+      sys.push("  - Use bullets ONLY when the answer is genuinely a list of discrete items: 'what tools have you used', 'list the steps', 'X vs Y', 'what are the tradeoffs of A vs B', 'what frameworks/languages do you know'. For these, bullets help the candidate scan and read smoothly.");
+      sys.push("  - Conceptual technical explanations ('how does X work', 'walk me through your design', 'how would you architect this', 'why did you choose Y') are spoken prose, NOT bullets — the candidate is explaining the system out loud, not reading items off a list. Use natural connective tissue ('the reason that matters is…', 'where this gets tricky is…', 'so what we did was…').");
+    }
     sys.push('');
     sys.push('LENGTH — give the interviewer enough to chew on. Short answers feel evasive. Match these targets:');
     sys.push('  - Trivial / yes-no / quick factual: 2-4 sentences (~50-100 words).');
@@ -541,6 +676,12 @@ export class InterviewEngine {
       clearTimeout(this.settleTimer);
       this.settleTimer = null;
     }
+    if (this.hardCapTimer) {
+      clearTimeout(this.hardCapTimer);
+      this.hardCapTimer = null;
+    }
+    this.pendingQuestion = '';
+    this.pendingQuestionStartAt = 0;
   }
 
   private log(msg: string): void {

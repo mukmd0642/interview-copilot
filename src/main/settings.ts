@@ -25,6 +25,10 @@ const DEFAULTS: Settings = {
   // before React renders to avoid a flash; settings.json is the durable
   // record across machines and reinstalls.
   theme: 'dark',
+  // Informal default — natural spoken prose. Matches the WinForms build
+  // and is the right choice for the majority of behavioural / experience
+  // questions where the candidate reads the answer aloud.
+  answerStyle: 'informal',
 };
 
 let cache: Settings | null = null;
@@ -42,6 +46,11 @@ export async function load(): Promise<Settings> {
     if (!LANGUAGES.includes(cache.language)) cache.language = 'en';
     // Same for theme — unknown values fall back to dark.
     if (cache.theme !== 'dark' && cache.theme !== 'light') cache.theme = 'dark';
+    // Same for answerStyle — unknown / missing falls back to informal so
+    // old settings files don't crash on read.
+    if (cache.answerStyle !== 'informal' && cache.answerStyle !== 'formal') {
+      cache.answerStyle = 'informal';
+    }
     // Defensive: an old settings file might be missing systemAudio entirely
     // or have an unrecognised kind. Fall back to the platform default rather
     // than letting the renderer crash on `.kind` deref.

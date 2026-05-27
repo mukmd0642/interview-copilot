@@ -1,122 +1,128 @@
 import { useEffect } from 'react';
 import { useApp } from '../state/store.js';
 import { webviewRegistry } from './webview-registry.js';
+import type { AppAction } from '../../../shared/ipc';
 
-// Renderer-level keyboard accelerators for browser-style shortcuts that
-// match what users expect from any tabbed browser.
+// Renderer-level keyboard accelerators for browser-style shortcuts.
 //
-// Caveat about webview focus
-// ──────────────────────────
-// When the user has clicked INTO an embedded <webview>, keyboard events
-// happen inside that webview's renderer process and our window-level
-// addEventListener('keydown') never sees them. The user can still hit
-// Esc / Tab / a click outside the webview to give our main page focus
-// back, then shortcuts work. Routing them through main-process
-// before-input-event would catch the in-webview case too, at the cost of
-// an IPC round-trip and more setup; we keep this renderer-only for v1.
+// Why two sources fire the same actions
+// ─────────────────────────────────────
+// When the user's focus is on our React app's top-level page, plain
+// `keydown` listeners fire — the matcher table below handles those.
+//
+// When focus is INSIDE an embedded <webview>, keystrokes happen in that
+// webview's separate renderer process and our window listener never sees
+// them. The main process intercepts via `before-input-event` and pushes
+// the matched action over IPC (`onWebviewShortcut`). We dispatch through
+// the same `dispatchAction` so both paths produce identical behaviour.
+//
+// Routing critical keys through the main-process hook costs one IPC hop
+// per keypress, which is fine for keyboard accelerators (handful per
+// minute, not per frame).
 
-type ShortcutMatch = (e: KeyboardEvent) => boolean;
+// ── Action dispatcher ──────────────────────────────────────────────────
+// Single source of truth for "what does each action DO." Both the
+// renderer keydown matcher and the webview-shortcut IPC handler call
+// this. Keep behaviour identical across both entry points.
 
-const cmdOrCtrl = (e: KeyboardEvent): boolean => e.ctrlKey || e.metaKey;
-
-const matchers: Array<{ name: string; match: ShortcutMatch; run: () => void }> = [];
-
-function register(name: string, match: ShortcutMatch, run: () => void): void {
-  matchers.push({ name, match, run });
-}
-
-// Rebuilt on every hook invocation; we read from the live store each time
-// so the actions reflect the current state.
-function install(): void {
-  matchers.length = 0;
-
-  const s = useApp.getState();
-
-  // ── Browser-tab shortcuts ───────────────────────────────────────────────
-  register(
-    'Ctrl/Cmd+T',
-    (e) => cmdOrCtrl(e) && !e.shiftKey && (e.key === 't' || e.key === 'T'),
-    () => useApp.getState().newTab()
-  );
-
-  register(
-    'Ctrl/Cmd+W',
-    (e) => cmdOrCtrl(e) && !e.shiftKey && (e.key === 'w' || e.key === 'W'),
-    () => {
-      // Only close a tab when the browser is the visible view AND we have
-      // more than one tab. Otherwise this would silently close the last
-      // remaining tab in the background, which the user can't observe.
-      const state = useApp.getState();
+function dispatchAction(action: AppAction): void {
+  const state = useApp.getState();
+  switch (action) {
+    case 'new-tab':
+      state.newTab();
+      return;
+    case 'close-tab':
+      // Only act when the browser is the visible view AND we have more
+      // than one tab. Otherwise we'd silently close the last remaining
+      // tab in the background, which the user can't observe.
       if (!state.browserVisible) return;
       if (state.tabs.length <= 1) return;
       state.closeTab();
-    }
-  );
-
-  register(
-    'Ctrl/Cmd+H',
-    (e) => cmdOrCtrl(e) && !e.shiftKey && (e.key === 'h' || e.key === 'H'),
-    () => useApp.getState().toggleHistory()
-  );
-
-  register(
-    'Ctrl/Cmd+Tab',
-    (e) => cmdOrCtrl(e) && e.key === 'Tab',
-    () => {
-      // Cycle through tabs in the browser view.
-      const state = useApp.getState();
+      return;
+    case 'toggle-history':
+      state.toggleHistory();
+      return;
+    case 'cycle-tab': {
       if (!state.browserVisible || state.tabs.length < 2) return;
       const idx = state.tabs.findIndex((t) => t.id === state.activeTabId);
       const next = state.tabs[(idx + 1) % state.tabs.length];
       if (next) state.selectTab(next.id);
+      return;
     }
-  );
+    case 'toggle-browser':
+      state.toggleBrowser();
+      return;
+    case 'go-back':
+      webviewRegistry.getActive()?.goBack();
+      return;
+    case 'go-forward':
+      webviewRegistry.getActive()?.goForward();
+      return;
+  }
+}
 
-  // Back / Forward in active webview
-  register(
-    'Alt+Left',
-    (e) => e.altKey && !cmdOrCtrl(e) && e.key === 'ArrowLeft',
-    () => webviewRegistry.getActive()?.goBack()
-  );
-  register(
-    'Alt+Right',
-    (e) => e.altKey && !cmdOrCtrl(e) && e.key === 'ArrowRight',
-    () => webviewRegistry.getActive()?.goForward()
-  );
+// ── Renderer keydown matcher table ─────────────────────────────────────
 
-  // ── App-level shortcuts (mirror the WinForms ProcessCmdKey list) ────────
-  register(
-    'Ctrl/Cmd+Shift+B',
-    (e) => cmdOrCtrl(e) && e.shiftKey && (e.key === 'b' || e.key === 'B'),
-    () => useApp.getState().toggleBrowser()
-  );
+const cmdOrCtrl = (e: KeyboardEvent): boolean => e.ctrlKey || e.metaKey;
 
-  // Close the history dialog with Escape (better than fishing for the
-  // backdrop with the mouse).
-  register(
-    'Escape',
-    (e) => e.key === 'Escape',
-    () => {
-      const state = useApp.getState();
-      if (state.historyOpen) state.setHistoryOpen(false);
-    }
-  );
+interface Matcher {
+  match: (e: KeyboardEvent) => boolean;
+  action: AppAction | (() => void); // either an AppAction or a one-off callback
+}
+
+function buildMatchers(): Matcher[] {
+  return [
+    // Browser-tab shortcuts — these mirror what main intercepts from the
+    // webview, so behaviour is identical regardless of focus location.
+    { match: (e) => cmdOrCtrl(e) && !e.shiftKey && !e.altKey && (e.key === 't' || e.key === 'T'), action: 'new-tab' },
+    { match: (e) => cmdOrCtrl(e) && !e.shiftKey && !e.altKey && (e.key === 'w' || e.key === 'W'), action: 'close-tab' },
+    { match: (e) => cmdOrCtrl(e) && !e.shiftKey && !e.altKey && (e.key === 'h' || e.key === 'H'), action: 'toggle-history' },
+    { match: (e) => cmdOrCtrl(e) && !e.shiftKey && e.key === 'Tab', action: 'cycle-tab' },
+
+    // App-level
+    { match: (e) => cmdOrCtrl(e) && e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B'), action: 'toggle-browser' },
+
+    // Webview navigation
+    { match: (e) => e.altKey && !cmdOrCtrl(e) && !e.shiftKey && e.key === 'ArrowLeft', action: 'go-back' },
+    { match: (e) => e.altKey && !cmdOrCtrl(e) && !e.shiftKey && e.key === 'ArrowRight', action: 'go-forward' },
+
+    // One-off (Escape doesn't map to an AppAction because closing dialogs
+    // never fires from inside a webview anyway).
+    {
+      match: (e) => e.key === 'Escape',
+      action: () => {
+        const s = useApp.getState();
+        if (s.historyOpen) s.setHistoryOpen(false);
+      },
+    },
+  ];
 }
 
 /** Install global keyboard accelerators. Call once from the App component. */
 export function useShortcuts(): void {
   useEffect(() => {
-    install();
+    const matchers = buildMatchers();
+
     const onKeyDown = (e: KeyboardEvent): void => {
       for (const m of matchers) {
         if (!m.match(e)) continue;
         e.preventDefault();
         e.stopPropagation();
-        m.run();
+        if (typeof m.action === 'string') dispatchAction(m.action);
+        else m.action();
         return;
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+
+    // Webview-focused keys land here via main-process interception.
+    const offWebviewShortcut = window.api.onWebviewShortcut((action) => {
+      dispatchAction(action);
+    });
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      offWebviewShortcut();
+    };
   }, []);
 }

@@ -5,6 +5,7 @@ import {
   type Settings,
   type Source,
   type Language,
+  type AnswerStyle,
   type InterviewContext,
 } from '../shared/ipc.js';
 import * as auth from './auth.js';
@@ -73,6 +74,11 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.Engine.SetLanguage, async (_, language: Language) => {
     transcriptionController.setEngineLanguage(language);
     await settings.save({ language });
+  });
+
+  ipcMain.handle(IPC.Engine.SetStyle, async (_, style: AnswerStyle) => {
+    transcriptionController.setAnswerStyle(style);
+    await settings.save({ answerStyle: style });
   });
 
   ipcMain.handle(IPC.Engine.ToggleAnswers, async (_, enabled: boolean) => {

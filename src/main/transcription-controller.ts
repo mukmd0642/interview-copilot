@@ -23,6 +23,7 @@ import {
   IPC,
   type Source,
   type Language,
+  type AnswerStyle,
   type TranscriptEvent,
   type TranscriptEntry,
   type AnswerChunk,
@@ -95,6 +96,15 @@ class TranscriptionController {
     this.micFast.onStatus = (s) => this.status(s, 'info');
     this.systemFast.onStatus = (s) => this.status(s, 'info');
 
+    // Mic-side silence is the strongest signal that the candidate has
+    // finished speaking — useful to the renderer for auto-flushing a
+    // pending buffered answer (so the candidate doesn't have to look up
+    // and click "Next ▼" while reading the current one aloud).
+    // We deliberately don't forward system-side silence: an interviewer
+    // pause isn't a candidate cue and would auto-advance answers the
+    // candidate hasn't gotten to.
+    this.micFast.onSilence = () => this.send(IPC.Events.SilenceMic, undefined);
+
     await Promise.all([
       this.micFast.connect(),
       this.systemFast.connect(),
@@ -116,6 +126,7 @@ class TranscriptionController {
         onSummary: (text) => this.sendSummary(text),
       });
       this.engine.setContext(settingsNow.jobDescription, settingsNow.resume);
+      this.engine.setAnswerStyle(settingsNow.answerStyle);
     }
 
     this.active = true;
@@ -179,6 +190,10 @@ class TranscriptionController {
   setEngineLanguage(language: Language): void {
     this.language = language;
     this.engine?.setLanguage(language);
+  }
+
+  setAnswerStyle(style: AnswerStyle): void {
+    this.engine?.setAnswerStyle(style);
   }
 
   toggleAnswers(enabled: boolean): void {

@@ -6,16 +6,18 @@
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write .",
-    "package:win": "electron-vite build && electron-builder --win",
-    "package:mac": "electron-vite build && electron-builder --mac",
-    "package": "electron-vite build && electron-builder -mw"
+    "build": "node scripts/build.mjs",
+    "build:win": "node scripts/build.mjs --win",
+    "build:mac": "node scripts/build.mjs --mac",
+    "build:all": "node scripts/build.mjs --all",
+    "clean": "node scripts/build.mjs --clean-only",
+    "make-icon": "node scripts/make-icon.mjs"
   },
   "dependencies": {
     "koffi": "^2.10.1",
