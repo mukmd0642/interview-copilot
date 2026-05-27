@@ -6,6 +6,12 @@ on:
     tags:
       - 'v*'
 
+# GITHUB_TOKEN defaults to read-only on repos created after 2023. The
+# softprops/action-gh-release step needs write access to create the
+# Release and upload assets to it.
+permissions:
+  contents: write
+
 jobs:
   build-mac:
     runs-on: macos-latest
