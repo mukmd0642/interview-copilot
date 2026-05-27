@@ -1,5 +1,10 @@
 appId: com.interviewcopilot.app
 productName: Interview Copilot
+# Disable electron-builder's auto-publish. When a git tag is pushed in CI it
+# would otherwise try to upload to a GitHub Release itself and demand
+# GH_TOKEN. We let softprops/action-gh-release handle the upload step from
+# the workflow instead — one publisher, no token plumbing here.
+publish: null
 directories:
   output: dist
   buildResources: resources
