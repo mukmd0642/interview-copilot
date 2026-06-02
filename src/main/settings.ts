@@ -1,7 +1,12 @@
 import { app } from 'electron';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { LANGUAGES, type Settings } from '../shared/ipc.js';
+import {
+  LANGUAGES,
+  DEFAULT_PIN_SHORTCUT,
+  DEFAULT_PRIVACY_SHORTCUT,
+  type Settings,
+} from '../shared/ipc.js';
 import { log } from './log.js';
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
@@ -29,6 +34,8 @@ const DEFAULTS: Settings = {
   // and is the right choice for the majority of behavioural / experience
   // questions where the candidate reads the answer aloud.
   answerStyle: 'informal',
+  pinShortcut: DEFAULT_PIN_SHORTCUT,
+  privacyShortcut: DEFAULT_PRIVACY_SHORTCUT,
 };
 
 let cache: Settings | null = null;
@@ -57,6 +64,15 @@ export async function load(): Promise<Settings> {
     const kind = cache.systemAudio?.kind;
     if (kind !== 'desktop' && kind !== 'device' && kind !== 'off') {
       cache.systemAudio = DEFAULT_SYSTEM_AUDIO;
+    }
+    // Defensive: shortcuts must be non-empty strings. An empty value would
+    // make globalShortcut.register throw; an absent value would crash on
+    // the renderer-side `value=...` of a controlled input.
+    if (typeof cache.pinShortcut !== 'string' || !cache.pinShortcut.trim()) {
+      cache.pinShortcut = DEFAULT_PIN_SHORTCUT;
+    }
+    if (typeof cache.privacyShortcut !== 'string' || !cache.privacyShortcut.trim()) {
+      cache.privacyShortcut = DEFAULT_PRIVACY_SHORTCUT;
     }
     return cache;
   } catch (err) {

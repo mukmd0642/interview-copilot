@@ -3,6 +3,7 @@ import { createMainWindow, ensureSingleInstance } from './window.js';
 import { registerIpc } from './ipc.js';
 import { registerGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts.js';
 import { installWebviewShortcutHook } from './webview-shortcuts.js';
+import * as settings from './settings.js';
 import { sessionBoundary, log } from './log.js';
 
 ensureSingleInstance();
@@ -110,7 +111,12 @@ app.whenReady().then(async () => {
   // Register global hotkeys AFTER the window exists so they have a target
   // window to act on. If we register earlier, the first hotkey press would
   // find a null window and silently no-op.
-  registerGlobalShortcuts();
+  //
+  // Accelerators come from settings.json so users on layouts that don't
+  // have backslash can pick something they can type. settings.load() is
+  // cached after first call, so this is cheap.
+  const s = await settings.load();
+  registerGlobalShortcuts(s.pinShortcut, s.privacyShortcut);
 
   app.on('activate', async () => {
     // macOS: re-create window when dock icon clicked and no windows open.

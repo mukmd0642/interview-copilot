@@ -89,7 +89,20 @@ export interface Settings extends InterviewContext {
   systemAudio: SystemAudioMode;
   theme: Theme;
   answerStyle: AnswerStyle;
+  // Electron accelerator strings (e.g. "CommandOrControl+\\"). Defaults
+  // chosen to match the original Cluely-style binding so existing users
+  // don't have to reconfigure; expose them in Setup so users on layouts
+  // that lack backslash (AZERTY, JIS, some Nordic) can pick something
+  // they can actually type.
+  pinShortcut: string;
+  privacyShortcut: string;
 }
+
+// Defaults are duplicated in src/main/settings.ts (authoritative load path)
+// and used by the renderer to seed the SetupDialog before settings.get()
+// resolves. Keep these in sync if the literal strings ever change.
+export const DEFAULT_PIN_SHORTCUT = 'CommandOrControl+\\';
+export const DEFAULT_PRIVACY_SHORTCUT = 'CommandOrControl+Shift+\\';
 
 export interface TranscriptEvent {
   source: Source;
@@ -139,6 +152,11 @@ export const IPC = {
     SetOpacity: 'window:setOpacity', // payload: number (0..1)
     Minimize: 'window:minimize',
     Close: 'window:close',
+    // payload: { pin: string; privacy: string }
+    // Re-registers the two global hotkeys. Returns { ok, pinOk, privacyOk }
+    // so the renderer can show per-binding feedback when one collides with
+    // a system shortcut and Electron rejects it.
+    SetShortcuts: 'window:setShortcuts',
   },
   Transcript: {
     Start: 'transcript:start', // payload: { language }

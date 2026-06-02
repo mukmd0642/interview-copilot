@@ -8,8 +8,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 
+// Authoritative desired state for the two window flags that can be toggled
+// from multiple entry points (toolbar button, global hotkey, IPC, OS event
+// reapplication). Reading from `win.isAlwaysOnTop()` or trying to infer
+// privacy from setContentProtection is unreliable on Windows — those
+// queries can drift after multiple toggles, which is exactly what produced
+// the "pin hotkey stops working" report. Treat these as the single source
+// of truth and have every setter update them.
+let topMostState = false;
+let privacyState = true;
+
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow;
+}
+
+export function getTopMost(): boolean {
+  return topMostState;
+}
+
+export function getPrivacy(): boolean {
+  return privacyState;
 }
 
 export async function createMainWindow(): Promise<BrowserWindow> {
@@ -63,7 +81,16 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   mainWindow.setContentProtection(true);
   log('window', 'setContentProtection(true) applied (macOS-ready)');
 
+  // Gated on privacyState so that show/restore/focus events don't silently
+  // re-enable capture exclusion after the user has explicitly turned Priv
+  // OFF (e.g. to take a screenshot). Without this gate the user sees the
+  // toolbar say "Priv OFF" but the next focus event flips display affinity
+  // back to WDA_EXCLUDEFROMCAPTURE, hiding the window from capture again.
   const reapplyWin32Protection = (reason: string): void => {
+    if (!privacyState) {
+      log('window', `win32 content protection [${reason}] skipped — privacy OFF`);
+      return;
+    }
     const result = applyHardestContentProtection(mainWindow!);
     log('window', `win32 content protection [${reason}] = ${result}`);
   };
@@ -99,6 +126,10 @@ export async function createMainWindow(): Promise<BrowserWindow> {
 
 export function setPrivacy(enabled: boolean): boolean {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  // Update the authoritative flag FIRST so the reapply hooks (show /
+  // restore / focus) see the new state on any event they fire during the
+  // OS calls below.
+  privacyState = enabled;
   // Order matters: enable both layers when turning on, disable both when off.
   // On Mac only setContentProtection moves the needle; on Windows only the
   // FFI call does. Calling both keeps the code branch-free.
@@ -115,6 +146,12 @@ export function setPrivacy(enabled: boolean): boolean {
 
 export function setTopMost(enabled: boolean): boolean {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  // Track our own desired state. Using win.isAlwaysOnTop() as the source
+  // of truth for the next toggle was unreliable on Windows — after a few
+  // hotkey presses it would return stale results and the hotkey would
+  // get stuck in one state. Authoritative state here means button +
+  // hotkey + IPC all agree.
+  topMostState = enabled;
   mainWindow.setAlwaysOnTop(enabled, 'floating');
   return enabled;
 }

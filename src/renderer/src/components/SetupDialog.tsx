@@ -1,19 +1,29 @@
 import { useState, useEffect } from 'react';
 import { listAudioInputs, type AudioInputDevice } from '../lib/audio-devices.js';
-import type { SystemAudioMode, AnswerStyle } from '../../../shared/ipc';
+import { captureShortcut, prettyLabel } from '../lib/shortcut-capture.js';
+import {
+  DEFAULT_PIN_SHORTCUT,
+  DEFAULT_PRIVACY_SHORTCUT,
+  type SystemAudioMode,
+  type AnswerStyle,
+} from '../../../shared/ipc';
 
 interface Props {
   initialJd: string;
   initialResume: string;
   initialSystemAudio: SystemAudioMode;
   initialAnswerStyle: AnswerStyle;
+  initialPinShortcut: string;
+  initialPrivacyShortcut: string;
   open: boolean;
   onClose: () => void;
   onSave: (
     jd: string,
     resume: string,
     systemAudio: SystemAudioMode,
-    answerStyle: AnswerStyle
+    answerStyle: AnswerStyle,
+    pinShortcut: string,
+    privacyShortcut: string
   ) => void;
 }
 
@@ -24,6 +34,8 @@ export function SetupDialog({
   initialResume,
   initialSystemAudio,
   initialAnswerStyle,
+  initialPinShortcut,
+  initialPrivacyShortcut,
   open,
   onClose,
   onSave,
@@ -32,6 +44,8 @@ export function SetupDialog({
   const [resume, setResume] = useState(initialResume);
   const [audio, setAudio] = useState<SystemAudioMode>(initialSystemAudio);
   const [style, setStyle] = useState<AnswerStyle>(initialAnswerStyle);
+  const [pinAccel, setPinAccel] = useState(initialPinShortcut);
+  const [privacyAccel, setPrivacyAccel] = useState(initialPrivacyShortcut);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
 
@@ -41,8 +55,18 @@ export function SetupDialog({
       setResume(initialResume);
       setAudio(initialSystemAudio);
       setStyle(initialAnswerStyle);
+      setPinAccel(initialPinShortcut);
+      setPrivacyAccel(initialPrivacyShortcut);
     }
-  }, [open, initialJd, initialResume, initialSystemAudio, initialAnswerStyle]);
+  }, [
+    open,
+    initialJd,
+    initialResume,
+    initialSystemAudio,
+    initialAnswerStyle,
+    initialPinShortcut,
+    initialPrivacyShortcut,
+  ]);
 
   // Refresh device list whenever the dialog opens. Browsers also fire a
   // `devicechange` event we could subscribe to, but a refresh on open
@@ -197,13 +221,37 @@ export function SetupDialog({
               </div>
             </button>
           </div>
+
+          <label className="dlg__label">GLOBAL HOTKEYS</label>
+          <div className="dlg__hint">
+            Pin/summon and a privacy panic key — they work even when the app
+            doesn't have focus. Click a field and press your chord. If your
+            layout doesn't have <code>\</code>, pick anything else (e.g.{' '}
+            <code>{isMac ? 'Cmd' : 'Ctrl'}+;</code>).
+          </div>
+          <div className="dlg__hotkey-row">
+            <span className="dlg__hotkey-name">Pin / Summon</span>
+            <ShortcutInput
+              value={pinAccel}
+              onChange={setPinAccel}
+              defaultValue={DEFAULT_PIN_SHORTCUT}
+            />
+          </div>
+          <div className="dlg__hotkey-row">
+            <span className="dlg__hotkey-name">Privacy Panic</span>
+            <ShortcutInput
+              value={privacyAccel}
+              onChange={setPrivacyAccel}
+              defaultValue={DEFAULT_PRIVACY_SHORTCUT}
+            />
+          </div>
         </div>
         <div className="dlg__bar">
           <button className="dlg__btn" onClick={onClose}>Cancel</button>
           <button
             className="dlg__btn dlg__btn--primary"
             onClick={() => {
-              onSave(jd.trim(), resume.trim(), audio, style);
+              onSave(jd.trim(), resume.trim(), audio, style, pinAccel, privacyAccel);
               onClose();
             }}
           >
@@ -211,6 +259,66 @@ export function SetupDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface ShortcutInputProps {
+  value: string;
+  onChange: (next: string) => void;
+  defaultValue: string;
+}
+
+// Click-to-record input. While "recording" we listen for the first
+// complete chord (modifier + key, or function key on its own) and
+// commit it. Pressing Escape cancels. A "Reset" button restores the
+// shipped default so a misclick on AZERTY doesn't strand the user.
+function ShortcutInput({ value, onChange, defaultValue }: ShortcutInputProps): JSX.Element {
+  const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (e: KeyboardEvent): void => {
+      // preventDefault on every keystroke so app-level shortcuts (Ctrl+T
+      // opening a tab, Esc closing the dialog) don't fire mid-capture.
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        setRecording(false);
+        return;
+      }
+      const result = captureShortcut(e);
+      if (!result) return; // pure modifier or unsupported key — keep waiting
+      onChange(result.accelerator);
+      setRecording(false);
+    };
+    // Capture phase so we beat the app's own keydown listener
+    // (use-shortcuts.ts) that would otherwise dispatch the chord as a
+    // browser action before we see it.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [recording, onChange]);
+
+  return (
+    <div className="dlg__hotkey-controls">
+      <button
+        type="button"
+        className={`dlg__hotkey-btn${recording ? ' dlg__hotkey-btn--recording' : ''}`}
+        onClick={() => setRecording((r) => !r)}
+        title={recording ? 'Press your shortcut, or Esc to cancel' : 'Click and press a chord'}
+      >
+        {recording ? 'Press a key…' : prettyLabel(value)}
+      </button>
+      {value !== defaultValue && (
+        <button
+          type="button"
+          className="dlg__hotkey-reset"
+          onClick={() => onChange(defaultValue)}
+          title="Restore default"
+        >
+          Reset
+        </button>
+      )}
     </div>
   );
 }

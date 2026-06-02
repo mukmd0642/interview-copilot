@@ -1,6 +1,6 @@
 import { globalShortcut } from 'electron';
 import { log } from './log.js';
-import { getMainWindow, setTopMost, setPrivacy } from './window.js';
+import { getMainWindow, getTopMost, setTopMost, setPrivacy } from './window.js';
 import { IPC } from '../shared/ipc.js';
 
 // Global hotkeys — these work even when the window doesn't have focus,
@@ -12,28 +12,38 @@ import { IPC } from '../shared/ipc.js';
 // permanently block the key combination for every app on the system, so
 // each one we register is a real cost.
 //
-// Defaults picked to be uncommon enough not to collide with normal app
-// shortcuts. `\` is the convention used by Cluely and similar stealth
-// tools, so users coming from those won't have to relearn.
+// Default accelerators (Ctrl+\ / Ctrl+Shift+\) live in shared/ipc.ts as
+// DEFAULT_PIN_SHORTCUT / DEFAULT_PRIVACY_SHORTCUT. Some keyboard layouts
+// don't have backslash, so the user can override both in Setup.
 
-const SHORTCUT_TOGGLE_PIN_AND_SUMMON = 'CommandOrControl+\\';
-const SHORTCUT_TOGGLE_PRIVACY        = 'CommandOrControl+Shift+\\';
+export interface RegisterResult {
+  pinOk: boolean;
+  privacyOk: boolean;
+}
 
-export function registerGlobalShortcuts(): void {
+export function registerGlobalShortcuts(pinAccel: string, privacyAccel: string): RegisterResult {
+  // Free anything previously registered before binding new accelerators.
+  // globalShortcut.register on an already-registered key silently no-ops
+  // and returns false, so re-registration without an unregister would
+  // appear as a "failed" result on every settings save.
+  globalShortcut.unregisterAll();
+
   // ── Toggle Pin (and summon when pinning) ────────────────────────────────
   //
   // Toggle the always-on-top flag. When pinning ON (from OFF), also raise
   // and focus the window — without this, the user could "pin" an
   // invisible-behind-everything window and still not be able to find it.
   // Unpinning leaves the window where it is so the user can keep working.
-  const ok1 = globalShortcut.register(SHORTCUT_TOGGLE_PIN_AND_SUMMON, () => {
+  const pinOk = safeRegister(pinAccel, () => {
     const win = getMainWindow();
     if (!win || win.isDestroyed()) {
       log('shortcut', 'pin: no window');
       return;
     }
-    const now = win.isAlwaysOnTop();
-    const next = !now;
+    // Read from our tracked state, NOT win.isAlwaysOnTop() — the latter
+    // can drift on Windows after several toggles, which is what made the
+    // hotkey appear to get stuck.
+    const next = !getTopMost();
     setTopMost(next);
     log('shortcut', `pin toggled → ${next}`);
 
@@ -49,30 +59,45 @@ export function registerGlobalShortcuts(): void {
     // Sync toolbar state in the renderer.
     safeSend(IPC.Events.TopMost, next);
   });
-  if (!ok1) log('shortcut', `failed to register ${SHORTCUT_TOGGLE_PIN_AND_SUMMON}`);
-  else log('shortcut', `registered ${SHORTCUT_TOGGLE_PIN_AND_SUMMON} → pin toggle + summon`);
+  if (pinOk) log('shortcut', `registered ${pinAccel} → pin toggle + summon`);
+  else log('shortcut', `failed to register ${pinAccel}`);
 
   // ── Toggle Privacy (panic key) ─────────────────────────────────────────
   //
   // Belt-and-suspenders: if the user ever loses confidence that the window
   // is hidden from capture, a single key flips it back ON regardless of
   // current state. The renderer's toolbar updates via the broadcast.
-  const ok2 = globalShortcut.register(SHORTCUT_TOGGLE_PRIVACY, () => {
+  const privacyOk = safeRegister(privacyAccel, () => {
     const win = getMainWindow();
     if (!win || win.isDestroyed()) return;
     // setContentProtection has no getter we can rely on cross-platform,
-    // so we track in the renderer's store and just toggle the flag here.
-    // For a "panic" hotkey, the safest default is to always re-enable.
+    // so we track in window.ts and just toggle the flag here. For a
+    // "panic" hotkey, the safest default is to always re-enable.
     setPrivacy(true);
     log('shortcut', 'privacy panic → re-enabled');
     safeSend(IPC.Events.Privacy, true);
   });
-  if (!ok2) log('shortcut', `failed to register ${SHORTCUT_TOGGLE_PRIVACY}`);
-  else log('shortcut', `registered ${SHORTCUT_TOGGLE_PRIVACY} → privacy panic`);
+  if (privacyOk) log('shortcut', `registered ${privacyAccel} → privacy panic`);
+  else log('shortcut', `failed to register ${privacyAccel}`);
+
+  return { pinOk, privacyOk };
 }
 
 export function unregisterGlobalShortcuts(): void {
   globalShortcut.unregisterAll();
+}
+
+// globalShortcut.register throws (rather than returning false) when the
+// accelerator string itself is malformed — e.g. "CommandOrControl++" or a
+// user-recorded chord we couldn't parse. Wrap so a bad accelerator string
+// degrades to a logged failure instead of taking down the IPC handler.
+function safeRegister(accel: string, fn: () => void): boolean {
+  try {
+    return globalShortcut.register(accel, fn);
+  } catch (err) {
+    log('shortcut', `register("${accel}") threw: ${(err as Error).message}`);
+    return false;
+  }
 }
 
 function safeSend<T>(channel: string, payload: T): void {

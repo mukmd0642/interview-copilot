@@ -462,6 +462,52 @@ button:disabled { opacity: 0.5; cursor: default; }
   line-height: 1.45;
 }
 
+/* ── Hotkey rows in Setup dialog ───────────────────────────────────────── */
+.dlg__hotkey-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.dlg__hotkey-name {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.dlg__hotkey-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.dlg__hotkey-btn {
+  flex: 1;
+  background: var(--bg-elev2);
+  color: var(--fg);
+  border: 1px solid transparent;
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms, background-color 120ms;
+}
+.dlg__hotkey-btn:hover { border-color: var(--accent); }
+.dlg__hotkey-btn--recording {
+  /* The "press a key" state — keep it obvious so the user doesn't think
+     the input froze. Accent border + slightly tinted background. */
+  border-color: var(--accent);
+  background: var(--bg-elev);
+  color: var(--accent-2);
+}
+.dlg__hotkey-reset {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dlg__hotkey-reset:hover { color: var(--fg); border-color: var(--accent); }
+
 /* ── History list ──────────────────────────────────────────────────────── */
 .history__list {
   display: flex;
@@ -503,6 +549,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 
 /* ── Browser view (embedded webview tabs) ──────────────────────────────── */
+/* Persistent wrapper around BrowserView. We toggle display:none on this
+   element instead of unmounting BrowserView so the <webview> Chromium
+   processes (and the loaded page state inside them) survive a return
+   trip to the interview view. */
+.browser-host {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .browser {
   flex: 1;
   display: flex;

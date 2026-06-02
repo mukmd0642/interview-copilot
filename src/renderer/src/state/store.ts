@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { Language, Theme, CaptionStatus, AnswerChunk } from '../../../shared/ipc';
+import {
+  DEFAULT_PIN_SHORTCUT,
+  DEFAULT_PRIVACY_SHORTCUT,
+  type Language,
+  type Theme,
+  type CaptionStatus,
+  type AnswerChunk,
+} from '../../../shared/ipc';
 
 // Zustand store holds the rolling UI state. Kept intentionally flat — we
 // don't want a complex selector hierarchy for what is really a streaming
@@ -37,6 +44,8 @@ export interface AppState {
   topMost: boolean;
   opacity: number;
   answersEnabled: boolean;
+  pinShortcut: string;
+  privacyShortcut: string;
 
   // Session lifecycle
   ccActive: boolean;
@@ -79,6 +88,7 @@ export interface AppState {
   setTopMost: (b: boolean) => void;
   setOpacity: (n: number) => void;
   setAnswersEnabled: (b: boolean) => void;
+  setShortcuts: (pin: string, privacy: string) => void;
 
   setCcBusy: (b: boolean) => void;
   setCcActive: (b: boolean) => void;
@@ -122,6 +132,8 @@ export const useApp = create<AppState>((set, get) => ({
   topMost: false,
   opacity: 1,
   answersEnabled: true,
+  pinShortcut: DEFAULT_PIN_SHORTCUT,
+  privacyShortcut: DEFAULT_PRIVACY_SHORTCUT,
 
   ccActive: false,
   ccBusy: false,
@@ -157,6 +169,7 @@ export const useApp = create<AppState>((set, get) => ({
   setTopMost: (topMost) => set({ topMost }),
   setOpacity: (opacity) => set({ opacity }),
   setAnswersEnabled: (answersEnabled) => set({ answersEnabled }),
+  setShortcuts: (pinShortcut, privacyShortcut) => set({ pinShortcut, privacyShortcut }),
 
   setCcBusy: (ccBusy) => set({ ccBusy }),
   setCcActive: (ccActive) => set({ ccActive }),

@@ -1,4 +1,5 @@
 import { useApp } from '../state/store.js';
+import { prettyLabel } from '../lib/shortcut-capture.js';
 import { languageShortLabel, nextLanguage } from '../../../shared/language';
 
 interface Props {
@@ -25,6 +26,8 @@ export function Toolbar({ onSetup, onToggleBrowser, onToggleCc, onClearTranscrip
   const ccActive = useApp((s) => s.ccActive);
   const ccBusy = useApp((s) => s.ccBusy);
   const status = useApp((s) => s.status);
+  const pinShortcut = useApp((s) => s.pinShortcut);
+  const pinLabel = prettyLabel(pinShortcut);
 
   const togglePrivacy = async () => {
     const next = !privacy;
@@ -106,7 +109,7 @@ export function Toolbar({ onSetup, onToggleBrowser, onToggleCc, onClearTranscrip
         // The whole point of the shortcut: if you click "Unpin" you can't
         // find the window again through normal switching. The title is the
         // first place a user looks when something disappears.
-        title={topMost ? 'Unpin (Ctrl+\\ to repin and summon)' : 'Pin (Ctrl+\\ also works)'}
+        title={topMost ? `Unpin (${pinLabel} to repin and summon)` : `Pin (${pinLabel} also works)`}
       >
         {topMost ? 'Unpin' : 'Pin'}
       </button>

@@ -8,7 +8,13 @@ import { SetupDialog } from './SetupDialog.js';
 import { BrowserView } from './BrowserView.js';
 import { HistoryDialog } from './HistoryDialog.js';
 import { startCapture } from '../lib/audio-capture.js';
-import type { SystemAudioMode, AnswerStyle } from '../../../shared/ipc';
+import { prettyLabel } from '../lib/shortcut-capture.js';
+import {
+  DEFAULT_PIN_SHORTCUT,
+  DEFAULT_PRIVACY_SHORTCUT,
+  type SystemAudioMode,
+  type AnswerStyle,
+} from '../../../shared/ipc';
 
 export function InterviewView(): JSX.Element {
   const setLanguage = useApp((s) => s.setLanguage);
@@ -29,12 +35,22 @@ export function InterviewView(): JSX.Element {
   const showBrowser = useApp((s) => s.browserVisible);
   const toggleBrowser = useApp((s) => s.toggleBrowser);
 
+  // Sticky flag: once the user opens the browser even once, keep the
+  // BrowserView mounted for the rest of the session so subsequent
+  // toggles just flip CSS visibility instead of recreating webviews.
+  const [browserMounted, setBrowserMounted] = useState(false);
+  useEffect(() => {
+    if (showBrowser && !browserMounted) setBrowserMounted(true);
+  }, [showBrowser, browserMounted]);
+
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupValues, setSetupValues] = useState<{
     jd: string;
     resume: string;
     systemAudio: SystemAudioMode;
     answerStyle: AnswerStyle;
+    pinShortcut: string;
+    privacyShortcut: string;
   }>({
     jd: '',
     resume: '',
@@ -43,6 +59,8 @@ export function InterviewView(): JSX.Element {
     // before settings.get() resolves.
     systemAudio: { kind: 'off' },
     answerStyle: 'informal',
+    pinShortcut: DEFAULT_PIN_SHORTCUT,
+    privacyShortcut: DEFAULT_PRIVACY_SHORTCUT,
   });
 
   // Capture handle held in a ref so the cleanup effect can reach it
@@ -69,7 +87,13 @@ export function InterviewView(): JSX.Element {
         resume: s.resume,
         systemAudio: s.systemAudio,
         answerStyle: s.answerStyle,
+        pinShortcut: s.pinShortcut,
+        privacyShortcut: s.privacyShortcut,
       });
+      // Seed the store so Toolbar tooltips + pin/unpin status messages can
+      // reference the actual configured chord rather than the hardcoded
+      // "Ctrl+\" placeholder.
+      useApp.getState().setShortcuts(s.pinShortcut, s.privacyShortcut);
       applyStatus({
         message: !s.jobDescription && !s.resume
           ? 'Click Setup to enter job details & resume, then CC to start'
@@ -83,10 +107,11 @@ export function InterviewView(): JSX.Element {
     // after a hotkey press, which would be very confusing.
     const offTopMost = window.api.onTopMost((enabled) => {
       useApp.getState().setTopMost(enabled);
+      const pin = prettyLabel(useApp.getState().pinShortcut);
       applyStatus({
         message: enabled
-          ? 'Pinned (Ctrl+\\ to unpin)'
-          : 'Unpinned (Ctrl+\\ to pin and bring back)',
+          ? `Pinned (${pin} to unpin)`
+          : `Unpinned (${pin} to pin and bring back)`,
         level: 'info',
       });
     });
@@ -216,9 +241,11 @@ export function InterviewView(): JSX.Element {
     jd: string,
     resume: string,
     systemAudio: SystemAudioMode,
-    answerStyle: AnswerStyle
+    answerStyle: AnswerStyle,
+    pinShortcut: string,
+    privacyShortcut: string
   ): Promise<void> => {
-    setSetupValues({ jd, resume, systemAudio, answerStyle });
+    setSetupValues({ jd, resume, systemAudio, answerStyle, pinShortcut, privacyShortcut });
     // setContext persists JD+resume to the engine immediately; we also
     // persist the audio source choice independently. answerStyle goes
     // through its own setStyle so the engine picks it up mid-session
@@ -226,11 +253,28 @@ export function InterviewView(): JSX.Element {
     await window.api.engine.setContext({ jobDescription: jd, resume });
     await window.api.engine.setStyle(answerStyle);
     await window.api.settings.set({ systemAudio });
+    // Only re-register hotkeys when they actually changed — globalShortcut
+    // unregisterAll/register is cheap but logs noisily, so skipping the
+    // no-op keeps app.log readable.
+    let hotkeyMsg = '';
+    if (
+      pinShortcut !== setupValues.pinShortcut ||
+      privacyShortcut !== setupValues.privacyShortcut
+    ) {
+      const result = await window.api.window.setShortcuts(pinShortcut, privacyShortcut);
+      useApp.getState().setShortcuts(pinShortcut, privacyShortcut);
+      if (!result.pinOk || !result.privacyOk) {
+        const failures: string[] = [];
+        if (!result.pinOk) failures.push('Pin');
+        if (!result.privacyOk) failures.push('Privacy');
+        hotkeyMsg = `  ·  Hotkey rejected (${failures.join(', ')}) — already in use by another app`;
+      }
+    }
     applyStatus({
       message: !jd && !resume
-        ? 'No context set  ·  Click CC to start'
-        : `Job context updated  ·  ${answerStyle === 'formal' ? 'Formal' : 'Informal'} style  ·  Click CC to start`,
-      level: 'info',
+        ? `No context set  ·  Click CC to start${hotkeyMsg}`
+        : `Job context updated  ·  ${answerStyle === 'formal' ? 'Formal' : 'Informal'} style  ·  Click CC to start${hotkeyMsg}`,
+      level: hotkeyMsg ? 'warn' : 'info',
     });
   };
 
@@ -244,18 +288,30 @@ export function InterviewView(): JSX.Element {
         showingBrowser={showBrowser}
       />
 
-      {showBrowser ? (
-        <BrowserView />
-      ) : (
-        <div className="interview">
-          <div className="interview__left">
-            <CaptionPanel source="system" label="INTERVIEWER" toneClass="them" />
-            <CaptionPanel source="mic" label="YOU" toneClass="you" />
-          </div>
-          <div className="interview__right">
-            <AnswerPanel />
-            <SummaryPanel />
-          </div>
+      {/*
+        Render BOTH panes once the browser has ever been opened, then
+        toggle visibility with display:none. Unmounting BrowserView would
+        destroy the <webview> Chromium processes, costing a fresh page
+        load + tab state every time the user switches back — that's both
+        "browser feels heavy" and "tabs are gone." Keeping it mounted
+        means the cost is paid once and switches become instant.
+
+        We still lazy-mount until first open so users who never touch the
+        browser don't spawn any Chromium renderers at startup.
+      */}
+      <div className="interview" style={{ display: showBrowser ? 'none' : undefined }}>
+        <div className="interview__left">
+          <CaptionPanel source="system" label="INTERVIEWER" toneClass="them" />
+          <CaptionPanel source="mic" label="YOU" toneClass="you" />
+        </div>
+        <div className="interview__right">
+          <AnswerPanel />
+          <SummaryPanel />
+        </div>
+      </div>
+      {browserMounted && (
+        <div className="browser-host" style={{ display: showBrowser ? undefined : 'none' }}>
+          <BrowserView />
         </div>
       )}
 
@@ -265,6 +321,8 @@ export function InterviewView(): JSX.Element {
         initialResume={setupValues.resume}
         initialSystemAudio={setupValues.systemAudio}
         initialAnswerStyle={setupValues.answerStyle}
+        initialPinShortcut={setupValues.pinShortcut}
+        initialPrivacyShortcut={setupValues.privacyShortcut}
         onClose={() => setSetupOpen(false)}
         onSave={handleSetupSave}
       />

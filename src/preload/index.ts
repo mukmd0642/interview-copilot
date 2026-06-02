@@ -43,6 +43,8 @@ const api = {
       ipcRenderer.invoke(IPC.Window.SetOpacity, value),
     minimize: (): Promise<void> => ipcRenderer.invoke(IPC.Window.Minimize),
     close: (): Promise<void> => ipcRenderer.invoke(IPC.Window.Close),
+    setShortcuts: (pin: string, privacy: string): Promise<{ pinOk: boolean; privacyOk: boolean }> =>
+      ipcRenderer.invoke(IPC.Window.SetShortcuts, { pin, privacy }),
   },
 
   transcript: {

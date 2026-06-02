@@ -11,6 +11,7 @@ import {
 import * as auth from './auth.js';
 import * as settings from './settings.js';
 import * as win from './window.js';
+import { registerGlobalShortcuts } from './shortcuts.js';
 import { transcriptionController } from './transcription-controller.js';
 import { log } from './log.js';
 
@@ -44,6 +45,18 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.Window.Close, async () => {
     win.getMainWindow()?.close();
   });
+  // Re-register global hotkeys with user-supplied accelerators and persist
+  // them so they survive a restart. Returns per-binding ok flags so the
+  // renderer can surface "Ctrl+T is already taken by something else"
+  // without us having to invent a new error channel.
+  ipcMain.handle(
+    IPC.Window.SetShortcuts,
+    async (_, payload: { pin: string; privacy: string }) => {
+      const result = registerGlobalShortcuts(payload.pin, payload.privacy);
+      await settings.save({ pinShortcut: payload.pin, privacyShortcut: payload.privacy });
+      return result;
+    }
+  );
 
   // ── Transcript / Engine ─────────────────────────────────────────────────
   ipcMain.handle(IPC.Transcript.Start, async (_, { language }: { language: Language }) => {
