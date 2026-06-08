@@ -82,6 +82,18 @@ function buildMatchers(): Matcher[] {
     // App-level
     { match: (e) => cmdOrCtrl(e) && e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B'), action: 'toggle-browser' },
 
+    // Layout toggle (compact ⇄ full). One-off: updates the store render and
+    // asks main to resize the window to the target mode's geometry.
+    {
+      match: (e) => cmdOrCtrl(e) && e.shiftKey && !e.altKey && (e.key === 'l' || e.key === 'L'),
+      action: () => {
+        const s = useApp.getState();
+        const next = s.layoutMode === 'compact' ? 'full' : 'compact';
+        s.setLayoutMode(next);
+        void window.api.window.setLayout(next);
+      },
+    },
+
     // Webview navigation
     { match: (e) => e.altKey && !cmdOrCtrl(e) && !e.shiftKey && e.key === 'ArrowLeft', action: 'go-back' },
     { match: (e) => e.altKey && !cmdOrCtrl(e) && !e.shiftKey && e.key === 'ArrowRight', action: 'go-forward' },

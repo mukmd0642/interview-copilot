@@ -47,6 +47,11 @@ interface SetupOptions {
   systemAudio: SystemAudioMode;
   onError: (source: 'mic' | 'system', message: string) => void;
   onWarn: (source: 'mic' | 'system', message: string) => void;
+  // Whether to open the candidate's microphone. Interview mode needs it (the
+  // candidate's own voice is transcribed); code mode does NOT — it only
+  // listens to the interviewer — so it passes false to avoid lighting the
+  // OS "mic in use" indicator and streaming PCM that's dropped main-side.
+  captureMic?: boolean;
 }
 
 async function makeContext(): Promise<AudioContext> {
@@ -183,12 +188,15 @@ export async function startCapture(opts: SetupOptions): Promise<CaptureHandle> {
   let sysStream: MediaStream | null = null;
 
   // Mic first — failing here is the only fatal case (no point starting
-  // transcription if the candidate can't be heard).
-  try {
-    micStream = await getMicStream();
-    attachWorklet(ctx, micStream, 'mic');
-  } catch (err) {
-    opts.onError('mic', (err as Error).message);
+  // transcription if the candidate can't be heard). Skipped entirely in code
+  // mode, which only wants interviewer audio.
+  if (opts.captureMic !== false) {
+    try {
+      micStream = await getMicStream();
+      attachWorklet(ctx, micStream, 'mic');
+    } catch (err) {
+      opts.onError('mic', (err as Error).message);
+    }
   }
 
   // System audio is best-effort. On Mac with mode='off' this is intentional

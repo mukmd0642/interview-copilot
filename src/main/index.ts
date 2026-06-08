@@ -3,8 +3,25 @@ import { createMainWindow, ensureSingleInstance } from './window.js';
 import { registerIpc } from './ipc.js';
 import { registerGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts.js';
 import { installWebviewShortcutHook } from './webview-shortcuts.js';
+import { applyProxyFromEnv } from './proxy.js';
 import * as settings from './settings.js';
 import { sessionBoundary, log } from './log.js';
+
+// Register crash handlers FIRST, before any module-load work below, so an
+// early failure is logged instead of vanishing into a silent exit.
+process.on('uncaughtException', (err) => {
+  log('main', `UNCAUGHT: ${err.stack ?? err.message}`);
+});
+process.on('unhandledRejection', (reason) => {
+  log('main', `UNHANDLED REJECTION: ${reason instanceof Error ? reason.stack : String(reason)}`);
+});
+
+// Auto-detect an HTTP(S) proxy from the environment (HTTPS_PROXY / HTTP_PROXY /
+// ALL_PROXY) and, if set, route ALL of the app's traffic through it — fetch,
+// the realtime WebSockets, and the embedded browser. Must run before app
+// `ready` so the Chromium --proxy-server switch takes effect. Internally
+// guarded so a bad proxy config can never crash startup.
+applyProxyFromEnv(app);
 
 ensureSingleInstance();
 
@@ -101,6 +118,13 @@ app.whenReady().then(async () => {
     { useSystemPicker: false }
   );
 
+  // Load settings ONCE here, before creating the window, so createMainWindow
+  // can read the cache synchronously (settings.cached()) to restore the
+  // remembered layout mode + window geometry. (Awaiting settings.load()
+  // *inside* createMainWindow — itself invoked from this whenReady callback
+  // — was tearing the process down before the window was created.)
+  const s = await settings.load();
+
   try {
     await createMainWindow();
   } catch (err) {
@@ -111,12 +135,7 @@ app.whenReady().then(async () => {
   // Register global hotkeys AFTER the window exists so they have a target
   // window to act on. If we register earlier, the first hotkey press would
   // find a null window and silently no-op.
-  //
-  // Accelerators come from settings.json so users on layouts that don't
-  // have backslash can pick something they can type. settings.load() is
-  // cached after first call, so this is cheap.
-  const s = await settings.load();
-  registerGlobalShortcuts(s.pinShortcut, s.privacyShortcut);
+  registerGlobalShortcuts(s.pinShortcut, s.privacyShortcut, s.hideShortcut, s.codingCaptureShortcut);
 
   app.on('activate', async () => {
     // macOS: re-create window when dock icon clicked and no windows open.
@@ -136,12 +155,4 @@ app.on('window-all-closed', () => {
 // cleanup here covers the macOS "quit without closing window" path.
 app.on('will-quit', () => {
   unregisterGlobalShortcuts();
-});
-
-process.on('uncaughtException', (err) => {
-  log('main', `UNCAUGHT: ${err.stack ?? err.message}`);
-});
-
-process.on('unhandledRejection', (reason) => {
-  log('main', `UNHANDLED REJECTION: ${reason instanceof Error ? reason.stack : String(reason)}`);
 });

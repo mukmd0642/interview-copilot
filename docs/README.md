@@ -1,6 +1,8 @@
 # Interview Copilot — Design Docs
 
-This folder collects UX and design analysis. Start with the **recommendations** doc — it's the synthesis. The four specialist reviews underneath it are the raw evidence.
+**👉 Start with [STATUS.md](./STATUS.md)** — current project state, what's built, the dev gotchas, and the prioritized TODO for resuming work (e.g. in Claude CLI).
+
+This folder also collects the UX and design analysis below. The **recommendations** doc is the interview-mode synthesis; the four specialist reviews under it are the raw evidence.
 
 | File | What's in it |
 |---|---|
@@ -9,6 +11,14 @@ This folder collects UX and design analysis. Start with the **recommendations** 
 | [`ux-review-onboarding.md`](./ux-review-onboarding.md) | A new user with 20 minutes before an interview. "CC" reads as "carbon copy". Mac BlackHole hint is a homework assignment. Privacy mode invisibly ON with no explanation. Hotkeys undiscoverable. |
 | [`ux-review-power-user.md`](./ux-review-power-user.md) | A candidate using this 5–10×/week. No hotkeys for the actions used most. Caption panels capped at 6 lines with no scrollback. Status bar overwrites itself. Setup dialog is the only path to update JD between interviews. |
 | [`ux-review-failure-modes.md`](./ux-review-failure-modes.md) | What breaks mid-interview, and whether the user can tell. WebSocket dies silently with no reconnect. Connect-time errors reported as success. Raw API JSON dumped into the answer pane on 429/500. Race condition between Stop and in-flight Start. |
+
+### Coding mode (agentic live-coding support)
+
+| File | What's in it |
+|---|---|
+| [`research-coding-tools.md`](./research-coding-tools.md) | Deep competitive research (verified) on how Interview Coder / LeetCode Wizard / etc. handle live coding rounds. Headline: the market is single-shot — **agentic multi-capture is an unfilled gap.** Stealth is leaky everywhere. |
+| [`coding-mode-ux.md`](./coding-mode-ux.md) | **The design.** Fast-path-then-escalate interaction model, screen layout, agent loop states, hotkeys, voice goal, honest stealth + secondary-device companion, phasing. Built on the research. |
+| [`coding-mode-plan.md`](./coding-mode-plan.md) | Main-process architecture (screen-capture, vision streaming, tool-calling loop, IPC). UX portions superseded by `coding-mode-ux.md`. |
 
 ## How these were produced
 

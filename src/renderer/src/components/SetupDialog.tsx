@@ -4,8 +4,11 @@ import { captureShortcut, prettyLabel } from '../lib/shortcut-capture.js';
 import {
   DEFAULT_PIN_SHORTCUT,
   DEFAULT_PRIVACY_SHORTCUT,
+  DEFAULT_HIDE_SHORTCUT,
+  DEFAULT_CODING_CAPTURE_SHORTCUT,
   type SystemAudioMode,
   type AnswerStyle,
+  type AnswerLength,
 } from '../../../shared/ipc';
 
 interface Props {
@@ -13,8 +16,11 @@ interface Props {
   initialResume: string;
   initialSystemAudio: SystemAudioMode;
   initialAnswerStyle: AnswerStyle;
+  initialAnswerLength: AnswerLength;
   initialPinShortcut: string;
   initialPrivacyShortcut: string;
+  initialHideShortcut: string;
+  initialCodingCaptureShortcut: string;
   open: boolean;
   onClose: () => void;
   onSave: (
@@ -22,8 +28,11 @@ interface Props {
     resume: string,
     systemAudio: SystemAudioMode,
     answerStyle: AnswerStyle,
+    answerLength: AnswerLength,
     pinShortcut: string,
-    privacyShortcut: string
+    privacyShortcut: string,
+    hideShortcut: string,
+    codingCaptureShortcut: string
   ) => void;
 }
 
@@ -34,8 +43,11 @@ export function SetupDialog({
   initialResume,
   initialSystemAudio,
   initialAnswerStyle,
+  initialAnswerLength,
   initialPinShortcut,
   initialPrivacyShortcut,
+  initialHideShortcut,
+  initialCodingCaptureShortcut,
   open,
   onClose,
   onSave,
@@ -44,8 +56,11 @@ export function SetupDialog({
   const [resume, setResume] = useState(initialResume);
   const [audio, setAudio] = useState<SystemAudioMode>(initialSystemAudio);
   const [style, setStyle] = useState<AnswerStyle>(initialAnswerStyle);
+  const [length, setLength] = useState<AnswerLength>(initialAnswerLength);
   const [pinAccel, setPinAccel] = useState(initialPinShortcut);
   const [privacyAccel, setPrivacyAccel] = useState(initialPrivacyShortcut);
+  const [hideAccel, setHideAccel] = useState(initialHideShortcut);
+  const [codingAccel, setCodingAccel] = useState(initialCodingCaptureShortcut);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
 
@@ -55,8 +70,11 @@ export function SetupDialog({
       setResume(initialResume);
       setAudio(initialSystemAudio);
       setStyle(initialAnswerStyle);
+      setLength(initialAnswerLength);
       setPinAccel(initialPinShortcut);
       setPrivacyAccel(initialPrivacyShortcut);
+      setHideAccel(initialHideShortcut);
+      setCodingAccel(initialCodingCaptureShortcut);
     }
   }, [
     open,
@@ -64,8 +82,11 @@ export function SetupDialog({
     initialResume,
     initialSystemAudio,
     initialAnswerStyle,
+    initialAnswerLength,
     initialPinShortcut,
     initialPrivacyShortcut,
+    initialHideShortcut,
+    initialCodingCaptureShortcut,
   ]);
 
   // Refresh device list whenever the dialog opens. Browsers also fire a
@@ -222,11 +243,42 @@ export function SetupDialog({
             </button>
           </div>
 
+          <label className="dlg__label">ANSWER LENGTH</label>
+          <div className="dlg__hint">
+            You read these aloud live, so shorter is usually easier to deliver naturally — and it appears faster. Detailed is best for prep or a second monitor.
+          </div>
+          <div className="dlg__style-row">
+            <button
+              type="button"
+              className={`dlg__style-card${length === 'brief' ? ' dlg__style-card--active' : ''}`}
+              onClick={() => setLength('brief')}
+            >
+              <div className="dlg__style-card__title">Brief</div>
+              <div className="dlg__style-card__desc">Punchy, ~1 short paragraph (~30-45s spoken). Fastest to read and to appear.</div>
+            </button>
+            <button
+              type="button"
+              className={`dlg__style-card${length === 'standard' ? ' dlg__style-card--active' : ''}`}
+              onClick={() => setLength('standard')}
+            >
+              <div className="dlg__style-card__title">Standard</div>
+              <div className="dlg__style-card__desc">Substantive but readable (~60-90s). The recommended default for live interviews.</div>
+            </button>
+            <button
+              type="button"
+              className={`dlg__style-card${length === 'detailed' ? ' dlg__style-card--active' : ''}`}
+              onClick={() => setLength('detailed')}
+            >
+              <div className="dlg__style-card__title">Detailed</div>
+              <div className="dlg__style-card__desc">Full essay-length answers (~2-3 min). For prep or a second-monitor read.</div>
+            </button>
+          </div>
+
           <label className="dlg__label">GLOBAL HOTKEYS</label>
           <div className="dlg__hint">
-            Pin/summon and a privacy panic key — they work even when the app
-            doesn't have focus. Click a field and press your chord. If your
-            layout doesn't have <code>\</code>, pick anything else (e.g.{' '}
+            All four work even when the app doesn't have focus. Click a
+            field and press your chord. If your layout doesn't have{' '}
+            <code>\</code>, pick anything else (e.g.{' '}
             <code>{isMac ? 'Cmd' : 'Ctrl'}+;</code>).
           </div>
           <div className="dlg__hotkey-row">
@@ -238,11 +290,27 @@ export function SetupDialog({
             />
           </div>
           <div className="dlg__hotkey-row">
-            <span className="dlg__hotkey-name">Privacy Panic</span>
+            <span className="dlg__hotkey-name">Stealth Panic</span>
             <ShortcutInput
               value={privacyAccel}
               onChange={setPrivacyAccel}
               defaultValue={DEFAULT_PRIVACY_SHORTCUT}
+            />
+          </div>
+          <div className="dlg__hotkey-row">
+            <span className="dlg__hotkey-name">Hide / Show</span>
+            <ShortcutInput
+              value={hideAccel}
+              onChange={setHideAccel}
+              defaultValue={DEFAULT_HIDE_SHORTCUT}
+            />
+          </div>
+          <div className="dlg__hotkey-row">
+            <span className="dlg__hotkey-name">Code: Capture / Solve</span>
+            <ShortcutInput
+              value={codingAccel}
+              onChange={setCodingAccel}
+              defaultValue={DEFAULT_CODING_CAPTURE_SHORTCUT}
             />
           </div>
         </div>
@@ -251,7 +319,7 @@ export function SetupDialog({
           <button
             className="dlg__btn dlg__btn--primary"
             onClick={() => {
-              onSave(jd.trim(), resume.trim(), audio, style, pinAccel, privacyAccel);
+              onSave(jd.trim(), resume.trim(), audio, style, length, pinAccel, privacyAccel, hideAccel, codingAccel);
               onClose();
             }}
           >

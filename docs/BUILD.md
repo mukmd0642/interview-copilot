@@ -81,10 +81,10 @@ After `npm run build:all` on a Mac you should see roughly:
 
 ```
 dist/
-├── Interview Copilot-0.1.0-setup.exe        ~85 MB  (Windows installer)
-├── Interview Copilot-0.1.0-portable.exe     ~85 MB  (Windows portable, single-file)
-├── Interview Copilot-0.1.0-arm64.dmg        ~95 MB  (Apple Silicon)
-├── Interview Copilot-0.1.0-x64.dmg          ~95 MB  (Intel Mac)
+├── Interview Copilot-0.2.0-setup.exe        ~85 MB  (Windows installer)
+├── Interview Copilot-0.2.0-portable.exe     ~85 MB  (Windows portable, single-file)
+├── Interview Copilot-0.2.0-arm64.dmg        ~95 MB  (Apple Silicon)
+├── Interview Copilot-0.2.0-x64.dmg          ~95 MB  (Intel Mac)
 ├── win-unpacked/                                    (Windows app directory)
 ├── mac-arm64/                                       (Mac arm64 app bundle)
 └── mac/                                             (Mac x64 app bundle)
@@ -98,8 +98,8 @@ The Windows build produces two `.exe` files:
 
 | File | What it does |
 |---|---|
-| `Interview Copilot-0.1.0-setup.exe` | NSIS installer. User picks an install directory, gets a Start menu shortcut and Add/Remove Programs entry. Normal Windows install. |
-| `Interview Copilot-0.1.0-portable.exe` | Single-file portable. Double-click to launch — no install step, no admin prompt, no registry entries, no shortcut. The app extracts to `%TEMP%\<hash>\` on each launch and runs from there. Useful for USB sticks, shared corporate machines without admin, or quick try-it-and-delete scenarios. |
+| `Interview Copilot-0.2.0-setup.exe` | NSIS installer. User picks an install directory, gets a Start menu shortcut and Add/Remove Programs entry. Normal Windows install. |
+| `Interview Copilot-0.2.0-portable.exe` | Single-file portable. Double-click to launch — no install step, no admin prompt, no registry entries, no shortcut. The app extracts to `%TEMP%\<hash>\` on each launch and runs from there. Useful for USB sticks, shared corporate machines without admin, or quick try-it-and-delete scenarios. |
 
 **Important for both:** user data (`settings.json`, `app.log`, login session) lives in `%APPDATA%\interview-copilot\` regardless of installation mode. So a user can install the NSIS version, save their JD and resume, uninstall, then run the portable .exe and their setup persists. That also means uninstall does NOT wipe user data — to fully remove the app, delete the `%APPDATA%\interview-copilot` folder manually after uninstalling.
 
@@ -108,9 +108,9 @@ The Windows build produces two `.exe` files:
 The version comes from `package.json`'s `version` field. Bump it before tagging a release:
 
 ```bash
-npm version patch    # 0.1.0 → 0.1.1
-npm version minor    # 0.1.0 → 0.2.0
-npm version major    # 0.1.0 → 1.0.0
+npm version patch    # 0.2.0 → 0.2.1
+npm version minor    # 0.2.0 → 0.3.0
+npm version major    # 0.2.0 → 1.0.0
 ```
 
 `npm version` also creates a git tag, which is handy for matching the installer to a commit later.

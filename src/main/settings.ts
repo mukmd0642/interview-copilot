@@ -3,8 +3,11 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import {
   LANGUAGES,
+  CODING_LANGUAGES,
   DEFAULT_PIN_SHORTCUT,
   DEFAULT_PRIVACY_SHORTCUT,
+  DEFAULT_HIDE_SHORTCUT,
+  DEFAULT_CODING_CAPTURE_SHORTCUT,
   type Settings,
 } from '../shared/ipc.js';
 import { log } from './log.js';
@@ -34,8 +37,22 @@ const DEFAULTS: Settings = {
   // and is the right choice for the majority of behavioural / experience
   // questions where the candidate reads the answer aloud.
   answerStyle: 'informal',
+  // Tight enough to read aloud live by default; 'detailed' restores the long
+  // essay-length answers for prep / second-monitor use.
+  answerLength: 'standard',
   pinShortcut: DEFAULT_PIN_SHORTCUT,
   privacyShortcut: DEFAULT_PRIVACY_SHORTCUT,
+  hideShortcut: DEFAULT_HIDE_SHORTCUT,
+  codingCaptureShortcut: DEFAULT_CODING_CAPTURE_SHORTCUT,
+  // Compact overlay by default; per-mode geometry remembered in windowBounds.
+  layoutMode: 'compact',
+  windowBounds: {},
+  // Coding-mode defaults: Python is the most common interview language;
+  // fast (minimal reasoning) keeps the common case snappy; solve (not review)
+  // is the default task.
+  codingLanguage: 'python',
+  codingEffort: 'fast',
+  codingTaskType: 'solve',
 };
 
 let cache: Settings | null = null;
@@ -58,6 +75,20 @@ export async function load(): Promise<Settings> {
     if (cache.answerStyle !== 'informal' && cache.answerStyle !== 'formal') {
       cache.answerStyle = 'informal';
     }
+    if (cache.answerLength !== 'brief' && cache.answerLength !== 'standard' && cache.answerLength !== 'detailed') {
+      cache.answerLength = 'standard';
+    }
+    // layoutMode + windowBounds defensive normalisation.
+    if (cache.layoutMode !== 'compact' && cache.layoutMode !== 'full') {
+      cache.layoutMode = 'compact';
+    }
+    if (typeof cache.windowBounds !== 'object' || cache.windowBounds === null) {
+      cache.windowBounds = {};
+    }
+    // Coding prefs defensive normalisation.
+    if (!CODING_LANGUAGES.includes(cache.codingLanguage)) cache.codingLanguage = 'python';
+    if (cache.codingEffort !== 'fast' && cache.codingEffort !== 'careful') cache.codingEffort = 'fast';
+    if (cache.codingTaskType !== 'solve' && cache.codingTaskType !== 'review') cache.codingTaskType = 'solve';
     // Defensive: an old settings file might be missing systemAudio entirely
     // or have an unrecognised kind. Fall back to the platform default rather
     // than letting the renderer crash on `.kind` deref.
@@ -74,6 +105,12 @@ export async function load(): Promise<Settings> {
     if (typeof cache.privacyShortcut !== 'string' || !cache.privacyShortcut.trim()) {
       cache.privacyShortcut = DEFAULT_PRIVACY_SHORTCUT;
     }
+    if (typeof cache.hideShortcut !== 'string' || !cache.hideShortcut.trim()) {
+      cache.hideShortcut = DEFAULT_HIDE_SHORTCUT;
+    }
+    if (typeof cache.codingCaptureShortcut !== 'string' || !cache.codingCaptureShortcut.trim()) {
+      cache.codingCaptureShortcut = DEFAULT_CODING_CAPTURE_SHORTCUT;
+    }
     return cache;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -82,6 +119,16 @@ export async function load(): Promise<Settings> {
     cache = { ...DEFAULTS };
     return cache;
   }
+}
+
+/**
+ * Synchronous accessor for the already-loaded settings. Returns DEFAULTS if
+ * load() hasn't run yet. For hot paths (e.g. debounced window-bounds save)
+ * that can't await — callers must have triggered load() earlier in startup,
+ * which createMainWindow does.
+ */
+export function cached(): Settings {
+  return cache ?? { ...DEFAULTS };
 }
 
 export async function save(partial: Partial<Settings>): Promise<Settings> {

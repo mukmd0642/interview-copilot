@@ -19,6 +19,7 @@
 
 import { WebSocket } from 'ws';
 import { log, q } from '../log.js';
+import { proxyAgentForWs } from '../proxy.js';
 import type { Language } from '../../shared/ipc.js';
 import { apiLanguageCode } from '../../shared/language.js';
 
@@ -75,6 +76,9 @@ export class RealtimeTranscriptionClient {
       // 64 KB per frame matches the C# client; OpenAI never sends single
       // chunks bigger than that.
       maxPayload: 8 * 1024 * 1024,
+      // Route through the env-configured proxy when one is set; undefined
+      // means connect directly (the default, no-proxy case).
+      agent: proxyAgentForWs(),
     });
 
     return new Promise<void>((resolve) => {

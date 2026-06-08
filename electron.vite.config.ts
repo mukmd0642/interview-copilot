@@ -8,7 +8,10 @@ export default defineConfig({
       outDir: 'out/main',
       lib: { entry: resolve(__dirname, 'src/main/index.ts') },
       rollupOptions: {
-        external: ['electron', 'ws', 'koffi'],
+        // Keep runtime node deps external (loaded from node_modules in the
+        // packed asar) rather than bundled. undici especially must stay
+        // external — its llhttp WASM + lazy requires don't survive bundling.
+        external: ['electron', 'ws', 'koffi', 'undici', 'https-proxy-agent'],
       },
     },
     resolve: {

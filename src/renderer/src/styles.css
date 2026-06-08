@@ -33,6 +33,15 @@
   --accent-good-bg:  #227a3c;
   --accent-active:   #0050a0;
 
+  /* Syntax-highlight tokens (code panel) — One Dark-ish on the dark bg */
+  --hl-comment:  #7f848e;
+  --hl-keyword:  #c678dd;
+  --hl-type:     #56b6c2;
+  --hl-string:   #98c379;
+  --hl-number:   #d19a66;
+  --hl-function: #61afef;
+  --hl-attr:     #e5c07b;
+
   /* Caption panels */
   --them-tint:       #1e2638;
   --them-fg:         #82b4ff;
@@ -84,6 +93,15 @@
   --accent-bad-bg:   #c83a3a;
   --accent-good-bg:  #2a8a4c;
   --accent-active:   #1466cc;
+
+  /* Syntax-highlight tokens — GitHub-light-ish for contrast on the light bg */
+  --hl-comment:  #6e7781;
+  --hl-keyword:  #cf222e;
+  --hl-type:     #953800;
+  --hl-string:   #0a3069;
+  --hl-number:   #0550ae;
+  --hl-function: #8250df;
+  --hl-attr:     #0550ae;
 
   /* Caption panels — light tints with darker text */
   --them-tint:       #e6efff;
@@ -201,48 +219,426 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Top toolbar ───────────────────────────────────────────────────────── */
 .toolbar {
-  height: 48px;
+  height: 44px;
   background: var(--toolbar-bg);
   display: flex;
   align-items: center;
-  padding: 0 4px;
-  gap: 4px;
+  flex-wrap: nowrap;          /* never wrap — overflow folds into the ⋯ menu */
+  padding: 0 6px;
+  gap: 5px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
 .toolbar > * { -webkit-app-region: no-drag; }
+
 .toolbar__btn {
-  height: 40px;
-  padding: 0 14px;
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;             /* buttons keep their size; only status shrinks */
   background: var(--bg-elev2);
   color: var(--fg);
   font-weight: 600;
-  border-radius: 3px;
+  font-size: 12.5px;
+  line-height: 1;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background-color 120ms, color 120ms, opacity 120ms;
 }
-.toolbar__btn--primary { background: var(--accent); color: white; }
+.toolbar__btn:hover { background: var(--hover); }
+
+.toolbar__btn--primary { background: var(--accent); color: #fff; }
 .toolbar__btn--primary:hover { background: var(--accent-2); }
-.toolbar__btn--privacy-on  { background: var(--accent-good-bg); color: white; }
-.toolbar__btn--privacy-off { background: var(--accent-bad-bg); color: white; }
-.toolbar__btn--cc-active   { background: var(--accent-bad-bg); color: white; }
-.toolbar__btn--active      { background: var(--accent-active);  color: white; }
-.toolbar__btn--ghost       { background: transparent; color: var(--fg-label); }
-.toolbar__btn--ghost:hover { background: var(--hover-soft); }
-.toolbar__status {
-  flex: 1;
-  text-align: center;
-  color: var(--fg-muted);
+
+/* CC: idle is a calm accent-tinted pill; active is solid red "● Stop". */
+.toolbar__btn--cc {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-elev2));
+  color: var(--accent-2);
 }
-.toolbar__status--warn  { color: var(--accent-warn-fg); }
-.toolbar__status--error { color: var(--accent-bad); }
-.toolbar__check {
+.toolbar__btn--cc:hover { background: color-mix(in srgb, var(--accent) 32%, var(--bg-elev2)); }
+.toolbar__btn--cc-active,
+.toolbar__btn--cc-active:hover { background: var(--accent-bad-bg); color: #fff; }
+
+.toolbar__btn--stealth-on  { background: var(--accent-good-bg); color: #fff; }
+.toolbar__btn--stealth-off { background: var(--accent-bad-bg); color: #fff; }
+.toolbar__btn--active      { background: var(--accent-active);  color: #fff; }
+.toolbar__btn--ghost       { background: transparent; color: var(--fg-label); }
+.toolbar__btn--ghost:hover { background: var(--hover-soft); color: var(--fg); }
+.toolbar__btn:disabled     { opacity: 0.45; }
+
+/* Spacer pushes the layout/stealth/overflow cluster to the right edge now
+   that the status no longer lives in the bar. */
+.toolbar__spacer { flex: 1 1 auto; min-width: 8px; }
+
+/* Interview ⇄ Code segmented toggle */
+.toolbar__modeseg {
+  display: inline-flex;
+  flex-shrink: 0;
+  background: var(--bg-elev2);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.toolbar__modeseg button {
+  height: 26px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 5px;
+}
+.toolbar__modeseg button.on { background: var(--accent); color: #fff; }
+.toolbar__modeseg button:not(.on):hover { color: var(--fg); }
+
+/* ── Opacity slider ─────────────────────────────────────────────────────── */
+.toolbar__opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.toolbar__opacity__val { min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.toolbar__opacity__label { flex: 1; }
+.toolbar__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 84px;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: pointer;
+  outline: none;
+}
+.toolbar__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-elev);
+}
+.toolbar__menuitem.toolbar__opacity { width: 100%; }
+.toolbar__menuitem.toolbar__opacity .toolbar__slider { width: 100%; }
+
+/* ── Status bar (own row under the toolbar) ─────────────────────────────── */
+.statusbar {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 4px 14px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  /* Full text readable; wraps to a second line if needed rather than
+     truncating. */
+  white-space: normal;
+  word-break: break-word;
+}
+.statusbar--warn  { color: var(--accent-warn-fg); background: var(--hint-warn-bg); }
+.statusbar--error { color: var(--accent-bad); background: rgba(200, 60, 60, 0.08); }
+
+/* ── Overflow (⋯) menu for compact mode ─────────────────────────────────── */
+.toolbar__overflow { position: relative; flex-shrink: 0; }
+.toolbar__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;                 /* catches outside clicks to close the menu */
+}
+.toolbar__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 41;
+  min-width: 184px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  gap: 2px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.toolbar__menuitem {
+  height: 34px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.toolbar__menuitem:hover { background: var(--hover-soft); }
+
+/* ── Coding mode ────────────────────────────────────────────────────────── */
+.coding-host { flex: 1; min-height: 0; display: flex; }
+.coding {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.coding__goalbar {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--you-fg);
-  cursor: pointer;
-  padding: 0 8px;
+  flex-shrink: 0;
 }
+.coding__goal {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  background: var(--bg-elev2);
+  color: var(--fg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+.coding__goal:focus { border-color: var(--accent); }
+.coding__mic, .coding__lang, .coding__solve, .coding__reset {
+  height: 32px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.coding__mic { padding: 0 10px; background: var(--bg-elev2); color: var(--fg); }
+.coding__mic--rec { background: var(--accent-bad-bg); color: #fff; }
+.coding__lang { padding: 0 8px; background: var(--bg-elev2); color: var(--fg); border: 0; cursor: pointer; }
+.coding__effort {
+  display: inline-flex;
+  background: var(--bg-elev2);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.coding__effort button {
+  height: 28px; padding: 0 10px; background: transparent; color: var(--fg-muted);
+  font-size: 12px; font-weight: 600; border-radius: 4px;
+}
+.coding__effort button.on { background: var(--accent); color: #fff; }
+.coding__solve { padding: 0 16px; background: var(--accent); color: #fff; }
+.coding__solve:hover { background: var(--accent-2); }
+.coding__solve--now { background: var(--accent-warn); }
+.coding__reset { padding: 0 12px; background: var(--bg-elev2); color: var(--fg-label); }
+
+/* Live interviewer caption strip */
+.coding__heard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: var(--them-tint);
+  color: var(--them-fg);
+  border-radius: 6px;
+  font-size: 12.5px;
+  min-height: 28px;
+}
+.coding__heard__icon { flex-shrink: 0; opacity: 0.8; }
+.coding__heard__text {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* DO THIS NEXT banner */
+.coding__banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.coding__banner--nav { background: color-mix(in srgb, var(--accent-warn) 22%, var(--bg-elev)); color: var(--fg); border: 1px solid var(--accent-warn); }
+.coding__banner--ask { background: color-mix(in srgb, var(--accent) 18%, var(--bg-elev)); color: var(--fg); border: 1px solid var(--accent); }
+.coding__banner--suggest { background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev)); color: var(--fg); border: 1px dashed var(--accent); }
+.coding__banner--answer { background: color-mix(in srgb, var(--accent-2) 16%, var(--bg-elev)); color: var(--fg); border: 1px solid var(--accent-2); align-items: flex-start; }
+.coding__banner--answer .coding__banner__text { line-height: 1.5; }
+.coding__banner__icon { font-size: 18px; }
+.coding__banner__text { flex: 1; min-width: 0; }
+.coding__banner__count { flex-shrink: 0; font-size: 11px; font-weight: 700; color: var(--fg-muted); background: var(--bg-elev2); padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.coding__banner__btn { height: 30px; padding: 0 14px; background: var(--accent); color: #fff; border-radius: 6px; font-weight: 700; font-size: 12.5px; flex-shrink: 0; }
+.coding__banner__btn--ghost { background: transparent; color: var(--fg-muted); border: 1px solid var(--border); }
+.coding__answer {
+  height: 30px; padding: 0 10px; background: var(--bg-elev2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; min-width: 160px;
+}
+
+.coding__body { flex: 1; min-height: 0; display: grid; grid-template-rows: auto 1fr; gap: 8px; }
+.coding__timeline {
+  flex-shrink: 0;
+  max-height: 96px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 2px 0;
+}
+.coding__step { line-height: 1.4; }
+.coding__step--solution { color: var(--you-fg); font-weight: 600; }
+.coding__step--error { color: var(--accent-bad); }
+.coding__step--instruction, .coding__step--question { color: var(--accent-warn-fg); }
+.coding__hint {
+  font-size: 13px; color: var(--fg-muted); line-height: 1.5;
+  background: var(--hint-bg); border-left: 2px solid var(--accent);
+  padding: 10px 12px; border-radius: 0 4px 4px 0;
+}
+
+.coding__solution {
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--answer-bg);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.coding__approach { font-size: 15px; font-weight: 700; color: var(--answer-fg); }
+.coding__codewrap { position: relative; }
+.coding__copy {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  height: 26px; padding: 0 10px; background: var(--bg-elev2); color: var(--fg);
+  border-radius: 5px; font-size: 11px; font-weight: 700;
+}
+.coding__code {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: 'Cascadia Code', 'Consolas', 'SF Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre;
+}
+/* Stack complexity + notes vertically, each full-width. A row layout let the
+   (often long) complexity string starve the notes into a narrow column that
+   wrapped mid-word. */
+.coding__meta { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; padding-top: 4px; border-top: 1px solid var(--border); }
+.coding__complexity { color: var(--accent-2); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.coding__notes { color: var(--fg-muted); line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; }
+.coding__error { color: var(--accent-bad); font-size: 13px; }
+.coding__placeholder { color: var(--fg-muted); font-size: 14px; }
+
+/* highlight.js tokens — styled against theme vars (no external theme import)
+   so colouring follows dark/light. Scoped to the solution panel so it covers
+   both the single code block and the diff cells. */
+.coding__solution .hljs-comment, .coding__solution .hljs-quote { color: var(--hl-comment); font-style: italic; }
+.coding__solution .hljs-keyword, .coding__solution .hljs-literal, .coding__solution .hljs-symbol, .coding__solution .hljs-operator { color: var(--hl-keyword); }
+.coding__solution .hljs-built_in, .coding__solution .hljs-type, .coding__solution .hljs-class .hljs-title, .coding__solution .hljs-title.class_ { color: var(--hl-type); }
+.coding__solution .hljs-string, .coding__solution .hljs-regexp, .coding__solution .hljs-meta .hljs-string, .coding__solution .hljs-template-tag { color: var(--hl-string); }
+.coding__solution .hljs-number { color: var(--hl-number); }
+.coding__solution .hljs-title, .coding__solution .hljs-title.function_, .coding__solution .hljs-section { color: var(--hl-function); }
+.coding__solution .hljs-attr, .coding__solution .hljs-attribute, .coding__solution .hljs-property, .coding__solution .hljs-name, .coding__solution .hljs-tag, .coding__solution .hljs-selector-tag { color: var(--hl-attr); }
+.coding__solution .hljs-meta, .coding__solution .hljs-doctag { color: var(--hl-comment); }
+
+/* Before/after diff (modification tasks) — react-diff-viewer-continued inside
+   a thin chrome (header + Copy + scroll cap). The library owns the table. */
+.coding__diff { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.coding__diffhead {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--bg-elev2); color: var(--fg-muted); font-weight: 700; font-size: 10.5px;
+  letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 10px;
+}
+.coding__diffcopy {
+  height: 20px; padding: 0 8px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0;
+}
+.coding__diffbody { max-height: 360px; overflow: auto; }
+
+/* Step-by-step minimal edits (primary view for modifications) */
+.coding__steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.coding__stepitem { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px 9px; background: var(--bg); }
+.coding__stephead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.coding__stepnum {
+  width: 18px; height: 18px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; border-radius: 50%; font-size: 11px; font-weight: 700;
+}
+.coding__stepfile { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; color: var(--accent-2); background: var(--bg-elev2); padding: 1px 6px; border-radius: 4px; }
+.coding__steptitle { font-weight: 700; font-size: 13px; color: var(--fg); }
+.coding__stepwhy { color: var(--fg-muted); font-size: 12.5px; line-height: 1.5; margin: 5px 0 0 26px; }
+.coding__stepcopy { margin-left: auto; height: 22px; padding: 0 9px; background: var(--bg-elev2); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.coding__stepcode { margin: 7px 0 0 26px; }
+.coding__stepcode .coding__code { font-size: 12px; padding: 8px 10px; }
+
+/* Code-review result */
+.coding__review { display: flex; flex-direction: column; gap: 12px; }
+.coding__findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.coding__finding { border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; padding: 7px 10px 8px; background: var(--bg); }
+.coding__finding--high { border-left-color: var(--accent-bad); }
+.coding__finding--medium { border-left-color: var(--accent-warn); }
+.coding__finding--low { border-left-color: var(--accent-2); }
+.coding__finding--nit { border-left-color: var(--fg-very-muted); }
+.coding__finding--praise { border-left-color: var(--you-fg); }
+.coding__finding__head { display: flex; align-items: center; gap: 8px; }
+.coding__sev { font-size: 10px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; color: #fff; flex-shrink: 0; }
+.coding__sev--high { background: var(--accent-bad); }
+.coding__sev--medium { background: var(--accent-warn); }
+.coding__sev--low { background: var(--accent-2); }
+.coding__sev--nit { background: var(--fg-very-muted); }
+.coding__sev--praise { background: var(--accent-good-bg); }
+.coding__finding__loc { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; color: var(--fg-muted); }
+.coding__finding__issue { font-size: 13px; line-height: 1.45; color: var(--fg); margin-top: 4px; }
+.coding__finding__fix { font-size: 12.5px; line-height: 1.45; color: var(--fg-muted); margin-top: 3px; }
+.coding__questions { border-top: 1px solid var(--border); padding-top: 9px; }
+.coding__questions__head { font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 5px; }
+.coding__questions ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.coding__questions li { font-size: 13px; line-height: 1.45; color: var(--fg); }
+
+/* Guided-apply */
+.coding__guide {
+  align-self: flex-start; height: 28px; padding: 0 12px; margin-bottom: 2px;
+  background: var(--accent); color: #fff; border-radius: 6px; font-size: 12.5px; font-weight: 700;
+}
+.coding__guided { border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; background: color-mix(in srgb, var(--accent) 8%, var(--bg)); display: flex; flex-direction: column; gap: 8px; }
+.coding__guided__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.coding__guided__progress { font-size: 11px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; color: #fff; background: var(--accent); padding: 2px 8px; border-radius: 10px; flex-shrink: 0; }
+.coding__guided__exit { margin-left: auto; height: 22px; padding: 0 9px; background: transparent; color: var(--fg-muted); border: 1px solid var(--border); border-radius: 5px; font-size: 11px; font-weight: 700; }
+.coding__guided__actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.coding__guided__hint { font-size: 10.5px; color: var(--fg-muted); margin-left: auto; }
+.coding__verify { font-size: 12.5px; line-height: 1.45; padding: 6px 10px; border-radius: 6px; font-weight: 600; }
+.coding__verify--ok { background: color-mix(in srgb, var(--accent-good-bg) 26%, transparent); color: var(--fg); }
+.coding__verify--fix { background: color-mix(in srgb, var(--accent-bad) 18%, transparent); color: var(--fg); }
+
+/* Collapsible full diff under the steps */
+.coding__diffwrap { border: 0; padding: 0; }
+.coding__diffsummary { cursor: pointer; color: var(--fg-muted); font-size: 12px; font-weight: 700; padding: 3px 0; user-select: none; list-style: revert; }
+.coding__diffsummary:hover { color: var(--fg); }
+.coding__diffwrap[open] .coding__diffsummary { margin-bottom: 7px; }
+/* The library renders token <span>s inside its cells; keep our hljs colours
+   but drop any inherited background so the diff add/remove tint shows through. */
+.coding__diffbody .hljs-keyword, .coding__diffbody .hljs-string, .coding__diffbody .hljs-comment,
+.coding__diffbody .hljs-number, .coding__diffbody .hljs-title, .coding__diffbody .hljs-attr,
+.coding__diffbody .hljs-built_in, .coding__diffbody .hljs-type { background: none; }
 
 /* ── Interview view ────────────────────────────────────────────────────── */
 .app-shell {
@@ -252,19 +648,86 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .interview {
   flex: 1;
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 8px;
+  min-height: 0;
   padding: 8px;
+  gap: 8px;
+}
+
+/* ── Compact overlay layout ─────────────────────────────────────────────
+   Single column: thin interviewer strip, big answer (the focus), and a
+   collapsible drawer for YOU + KEY POINTS. The answer gets all the
+   leftover height. */
+.interview--compact {
+  display: flex;
+  flex-direction: column;
+}
+.interview--compact > .panel:first-child {
+  /* INTERVIEWER strip — capped short; it's glance-to-confirm context, not
+     the thing you read. */
+  flex: 0 0 auto;
+  max-height: 26%;
+}
+.interview--compact > .panel { min-height: 0; }
+.interview--compact .panel--answer-host,
+.interview--compact > .panel:nth-child(2) {
+  /* The answer panel is the second child — give it the room. */
+  flex: 1 1 auto;
   min-height: 0;
 }
-.interview__left, .interview__right {
+
+.compact-extras {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.compact-extras__toggle {
+  background: var(--bg-elev);
+  color: var(--fg-muted);
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 0;
+}
+.compact-extras__toggle:hover { background: var(--hover-soft); color: var(--fg); }
+.compact-extras__body {
   display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 8px;
+  /* Cap the drawer so it never crowds the answer; it scrolls internally. */
+  max-height: 40vh;
+  min-height: 0;
+  margin-top: 8px;
+}
+
+/* ── Full multi-panel layout ────────────────────────────────────────────
+   Narrow left column (THEM / YOU / KEY stacked), dominant answer right. */
+.interview--full {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) 1.6fr;
+}
+.interview--full .interview__left {
+  display: grid;
+  grid-template-rows: 1.3fr 1fr 1fr;
   gap: 8px;
   min-height: 0;
 }
-.interview__left  { grid-template-rows: 3fr 1fr; }
-.interview__right { grid-template-rows: 3fr 1fr; }
+.interview--full .interview__right {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-height: 0;
+}
+
+/* Responsive: if the window gets narrow in full mode, collapse to a single
+   column so nothing clips — answer on top, context below. */
+@media (max-width: 720px) {
+  .interview--full {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .interview--full .interview__left { grid-template-rows: auto auto auto; }
+}
 
 .panel {
   display: flex;

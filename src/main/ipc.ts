@@ -6,13 +6,18 @@ import {
   type Source,
   type Language,
   type AnswerStyle,
+  type AnswerLength,
+  type LayoutMode,
   type InterviewContext,
+  type CodingStartRequest,
+  type CodingLanguage,
 } from '../shared/ipc.js';
 import * as auth from './auth.js';
 import * as settings from './settings.js';
 import * as win from './window.js';
 import { registerGlobalShortcuts } from './shortcuts.js';
 import { transcriptionController } from './transcription-controller.js';
+import { codingController } from './coding-controller.js';
 import { log } from './log.js';
 
 export function registerIpc(): void {
@@ -45,15 +50,21 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.Window.Close, async () => {
     win.getMainWindow()?.close();
   });
+  ipcMain.handle(IPC.Window.SetLayout, async (_, mode: LayoutMode) => win.setLayout(mode));
   // Re-register global hotkeys with user-supplied accelerators and persist
   // them so they survive a restart. Returns per-binding ok flags so the
   // renderer can surface "Ctrl+T is already taken by something else"
   // without us having to invent a new error channel.
   ipcMain.handle(
     IPC.Window.SetShortcuts,
-    async (_, payload: { pin: string; privacy: string }) => {
-      const result = registerGlobalShortcuts(payload.pin, payload.privacy);
-      await settings.save({ pinShortcut: payload.pin, privacyShortcut: payload.privacy });
+    async (_, payload: { pin: string; privacy: string; hide: string; coding: string }) => {
+      const result = registerGlobalShortcuts(payload.pin, payload.privacy, payload.hide, payload.coding);
+      await settings.save({
+        pinShortcut: payload.pin,
+        privacyShortcut: payload.privacy,
+        hideShortcut: payload.hide,
+        codingCaptureShortcut: payload.coding,
+      });
       return result;
     }
   );
@@ -94,8 +105,43 @@ export function registerIpc(): void {
     await settings.save({ answerStyle: style });
   });
 
+  ipcMain.handle(IPC.Engine.SetLength, async (_, length: AnswerLength) => {
+    transcriptionController.setAnswerLength(length);
+    await settings.save({ answerLength: length });
+  });
+
   ipcMain.handle(IPC.Engine.ToggleAnswers, async (_, enabled: boolean) => {
     transcriptionController.toggleAnswers(enabled);
+  });
+
+  // ── Coding mode (agentic) ─────────────────────────────────────────────────
+  ipcMain.handle(IPC.Coding.StartListening, async () => codingController.startListening());
+  ipcMain.handle(IPC.Coding.StopListening, async () => { await codingController.stopListening(); });
+  ipcMain.handle(IPC.Coding.Start, async (_, req: CodingStartRequest) => {
+    const mainWin = win.getMainWindow();
+    if (mainWin) codingController.attachWindow(mainWin);
+    return codingController.start(req);
+  });
+  ipcMain.handle(IPC.Coding.Capture, async () => { await codingController.recapture(); });
+  ipcMain.handle(IPC.Coding.Answer, async (_, payload: { text: string }) => {
+    await codingController.answer(payload?.text ?? '');
+  });
+  ipcMain.handle(IPC.Coding.SolveNow, async () => { await codingController.solveNow(); });
+  ipcMain.handle(
+    IPC.Coding.ResolveLanguage,
+    async (_, payload: { accept: boolean; language: CodingLanguage }) => {
+      await codingController.resolveLanguage(payload?.accept ?? false, payload?.language ?? 'python');
+    }
+  );
+  ipcMain.handle(
+    IPC.Coding.VerifyStep,
+    async (_, p: { index: number; total: number; file: string; instruction: string; code: string }) => {
+      await codingController.verifyStep(p);
+    }
+  );
+  ipcMain.handle(IPC.Coding.Cancel, async () => { codingController.cancel(); });
+  ipcMain.handle(IPC.Coding.TranscribeGoal, async (_, payload: { wavBase64: string }) => {
+    return transcribeGoal(payload?.wavBase64 ?? '');
   });
 
   // ── Renderer diagnostics ────────────────────────────────────────────────
@@ -110,4 +156,35 @@ export function registerIpc(): void {
   );
 
   log('ipc', 'IPC handlers registered');
+}
+
+/**
+ * One-shot transcription of a recorded goal (push-to-talk voice goal in
+ * coding mode). Decoupled from the live realtime pipeline — just a single
+ * REST call to gpt-4o-transcribe. Returns { text } or { error }.
+ */
+async function transcribeGoal(wavBase64: string): Promise<{ text: string } | { error: string }> {
+  const key = auth.apiKey();
+  if (!key) return { error: 'Not signed in' };
+  if (!wavBase64) return { error: 'No audio' };
+  try {
+    const bytes = Buffer.from(wavBase64, 'base64');
+    const form = new FormData();
+    form.append('file', new Blob([bytes], { type: 'audio/wav' }), 'goal.wav');
+    form.append('model', 'gpt-4o-transcribe');
+    form.append('response_format', 'json');
+    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      return { error: `OpenAI ${resp.status}: ${body.slice(0, 200)}` };
+    }
+    const json = (await resp.json()) as { text?: string };
+    return { text: (json.text ?? '').trim() };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 }

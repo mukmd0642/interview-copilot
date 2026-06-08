@@ -24,6 +24,7 @@ import {
   type Source,
   type Language,
   type AnswerStyle,
+  type AnswerLength,
   type TranscriptEvent,
   type TranscriptEntry,
   type AnswerChunk,
@@ -52,6 +53,12 @@ class TranscriptionController {
   private active = false;
   private language: Language = 'en';
   private window: BrowserWindow | null = null;
+
+  // Coding-mode routing: when set, system (interviewer) accurate finals are
+  // forwarded here instead of to the InterviewEngine, and no engine is
+  // created. Captions still emit normally so the Code view can show them.
+  private codingMode = false;
+  private codingFinalSink: ((text: string) => void) | null = null;
 
   attachWindow(window: BrowserWindow): void {
     this.window = window;
@@ -127,6 +134,7 @@ class TranscriptionController {
       });
       this.engine.setContext(settingsNow.jobDescription, settingsNow.resume);
       this.engine.setAnswerStyle(settingsNow.answerStyle);
+      this.engine.setAnswerLength(settingsNow.answerLength);
     }
 
     this.active = true;
@@ -136,6 +144,40 @@ class TranscriptionController {
         : 'Listening  ·  Live captions only',
       'info'
     );
+    return { ok: true };
+  }
+
+  /**
+   * Coding-mode listening: only the SYSTEM (interviewer) channel — we want
+   * the interviewer's spoken problem framing, rules, and follow-up questions
+   * fed to the code agent. No InterviewEngine, no mic clients (the
+   * candidate's own speech isn't agent input; they read the agent's output).
+   * Captions still emit so the Code view shows what's being heard.
+   */
+  async startForCoding(language: Language, onInterviewerFinal: (text: string) => void): Promise<{ ok: boolean; message?: string }> {
+    if (this.active) return { ok: false, message: 'Transcription already running' };
+    const apiKey = auth.apiKey();
+    if (!apiKey) return { ok: false, message: 'Not signed in' };
+    log('controller', 'startForCoding');
+    this.language = language;
+    this.entries = [];
+    this.codingMode = true;
+    this.codingFinalSink = onInterviewerFinal;
+
+    this.systemFast = this.makeClient(apiKey, 'system-fast', language, 'gpt-realtime-whisper', false);
+    this.systemAccurate = this.makeClient(apiKey, 'system-accurate', language, 'gpt-4o-transcribe', true);
+    this.attachFast(this.systemFast, 'system');
+    this.attachAccurate(this.systemAccurate, 'system');
+    this.systemFast.onStatus = (s) => this.status(s, 'info');
+
+    await Promise.all([this.systemFast.connect(), this.systemAccurate.connect()]);
+    if (!this.systemFast.isConnected && !this.systemAccurate.isConnected) {
+      this.status('Failed to start interviewer audio.', 'error');
+      await this.stop();
+      return { ok: false, message: 'OpenAI realtime connect failed' };
+    }
+    this.active = true;
+    this.status('Listening to interviewer for coding context…', 'info');
     return { ok: true };
   }
 
@@ -158,6 +200,9 @@ class TranscriptionController {
     this.systemFast = null;
     this.micAccurate = null;
     this.systemAccurate = null;
+
+    this.codingMode = false;
+    this.codingFinalSink = null;
 
     await Promise.allSettled(tasks);
     this.status('Stopped.', 'info');
@@ -190,6 +235,10 @@ class TranscriptionController {
   setEngineLanguage(language: Language): void {
     this.language = language;
     this.engine?.setLanguage(language);
+  }
+
+  setAnswerLength(length: AnswerLength): void {
+    this.engine?.setAnswerLength(length);
   }
 
   setAnswerStyle(style: AnswerStyle): void {
@@ -244,7 +293,11 @@ class TranscriptionController {
       const text = evt.text.trim();
       if (!text) return;
       this.entries.push({ source, text, wallTime: Date.now() });
-      if (source === 'mic') {
+      if (this.codingMode) {
+        // Coding mode: interviewer (system) speech feeds the code agent.
+        // Mic finals (candidate's own voice) are display-only.
+        if (source === 'system') this.codingFinalSink?.(text);
+      } else if (source === 'mic') {
         this.engine?.notifyCandidateSpoke(text);
       } else {
         this.engine?.notifyInterviewerSpoke(text);

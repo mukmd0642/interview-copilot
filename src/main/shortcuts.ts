@@ -1,6 +1,6 @@
 import { globalShortcut } from 'electron';
 import { log } from './log.js';
-import { getMainWindow, getTopMost, setTopMost, setPrivacy } from './window.js';
+import { getMainWindow, getTopMost, setTopMost, setPrivacy, toggleHidden } from './window.js';
 import { IPC } from '../shared/ipc.js';
 
 // Global hotkeys — these work even when the window doesn't have focus,
@@ -19,9 +19,21 @@ import { IPC } from '../shared/ipc.js';
 export interface RegisterResult {
   pinOk: boolean;
   privacyOk: boolean;
+  hideOk: boolean;
+  codingOk: boolean;
 }
 
-export function registerGlobalShortcuts(pinAccel: string, privacyAccel: string): RegisterResult {
+// Coding mode's capture/solve key is global so it fires while focus is in the
+// editor/CoderPad. In coding mode it re-captures mid-session; otherwise it
+// jumps into coding mode and solves what's on screen. Renderer routes it
+// (InterviewView). Accelerator is user-customisable via Setup.
+
+export function registerGlobalShortcuts(
+  pinAccel: string,
+  privacyAccel: string,
+  hideAccel: string,
+  codingAccel: string
+): RegisterResult {
   // Free anything previously registered before binding new accelerators.
   // globalShortcut.register on an already-registered key silently no-ops
   // and returns false, so re-registration without an unregister would
@@ -80,7 +92,35 @@ export function registerGlobalShortcuts(pinAccel: string, privacyAccel: string):
   if (privacyOk) log('shortcut', `registered ${privacyAccel} → privacy panic`);
   else log('shortcut', `failed to register ${privacyAccel}`);
 
-  return { pinOk, privacyOk };
+  // ── Toggle Hide (whole window) ─────────────────────────────────────────
+  //
+  // Yank the window off screen entirely (no taskbar, no Alt+Tab, just
+  // gone). Press again to restore on top of whatever's currently in
+  // front. Useful when the candidate needs to share their screen
+  // momentarily without the OS-level "screen recording" indicator
+  // showing a hidden-but-running window in some niche capturers.
+  const hideOk = safeRegister(hideAccel, () => {
+    const win = getMainWindow();
+    if (!win || win.isDestroyed()) {
+      log('shortcut', 'hide: no window');
+      return;
+    }
+    toggleHidden();
+  });
+  if (hideOk) log('shortcut', `registered ${hideAccel} → hide/show toggle`);
+  else log('shortcut', `failed to register ${hideAccel}`);
+
+  // ── Coding capture / solve (global) ─────────────────────────────────────
+  // Fire-and-forget to the renderer, which decides start-vs-recapture based
+  // on session state. Hardcoded accel (not user-customisable yet).
+  const codingOk = safeRegister(codingAccel, () => {
+    safeSend(IPC.Events.CodingCaptureHotkey, undefined);
+    log('shortcut', 'coding capture hotkey → renderer');
+  });
+  if (codingOk) log('shortcut', `registered ${codingAccel} → coding capture/solve`);
+  else log('shortcut', `failed to register ${codingAccel}`);
+
+  return { pinOk, privacyOk, hideOk, codingOk };
 }
 
 export function unregisterGlobalShortcuts(): void {

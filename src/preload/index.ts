@@ -12,7 +12,12 @@ import {
   type InterviewContext,
   type Language,
   type AnswerStyle,
+  type AnswerLength,
   type AppAction,
+  type LayoutMode,
+  type CodingStartRequest,
+  type CodingStep,
+  type CodingLanguage,
 } from '../shared/ipc.js';
 
 // Single typed surface exposed on window.api. Renderer code never touches
@@ -43,8 +48,15 @@ const api = {
       ipcRenderer.invoke(IPC.Window.SetOpacity, value),
     minimize: (): Promise<void> => ipcRenderer.invoke(IPC.Window.Minimize),
     close: (): Promise<void> => ipcRenderer.invoke(IPC.Window.Close),
-    setShortcuts: (pin: string, privacy: string): Promise<{ pinOk: boolean; privacyOk: boolean }> =>
-      ipcRenderer.invoke(IPC.Window.SetShortcuts, { pin, privacy }),
+    setShortcuts: (
+      pin: string,
+      privacy: string,
+      hide: string,
+      coding: string
+    ): Promise<{ pinOk: boolean; privacyOk: boolean; hideOk: boolean; codingOk: boolean }> =>
+      ipcRenderer.invoke(IPC.Window.SetShortcuts, { pin, privacy, hide, coding }),
+    setLayout: (mode: LayoutMode): Promise<LayoutMode> =>
+      ipcRenderer.invoke(IPC.Window.SetLayout, mode),
   },
 
   transcript: {
@@ -65,8 +77,32 @@ const api = {
       ipcRenderer.invoke(IPC.Engine.SetLanguage, language),
     setStyle: (style: AnswerStyle): Promise<void> =>
       ipcRenderer.invoke(IPC.Engine.SetStyle, style),
+    setLength: (length: AnswerLength): Promise<void> =>
+      ipcRenderer.invoke(IPC.Engine.SetLength, length),
     toggleAnswers: (enabled: boolean): Promise<void> =>
       ipcRenderer.invoke(IPC.Engine.ToggleAnswers, enabled),
+  },
+
+  coding: {
+    startListening: (): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.Coding.StartListening),
+    stopListening: (): Promise<void> => ipcRenderer.invoke(IPC.Coding.StopListening),
+    start: (req: CodingStartRequest): Promise<{ ok: boolean; message?: string }> =>
+      ipcRenderer.invoke(IPC.Coding.Start, req),
+    capture: (): Promise<void> => ipcRenderer.invoke(IPC.Coding.Capture),
+    answer: (text: string): Promise<void> => ipcRenderer.invoke(IPC.Coding.Answer, { text }),
+    solveNow: (): Promise<void> => ipcRenderer.invoke(IPC.Coding.SolveNow),
+    resolveLanguage: (accept: boolean, language: CodingLanguage): Promise<void> =>
+      ipcRenderer.invoke(IPC.Coding.ResolveLanguage, { accept, language }),
+    verifyStep: (p: { index: number; total: number; file: string; instruction: string; code: string }): Promise<void> =>
+      ipcRenderer.invoke(IPC.Coding.VerifyStep, p),
+    cancel: (): Promise<void> => ipcRenderer.invoke(IPC.Coding.Cancel),
+    transcribeGoal: (wavBase64: string): Promise<{ text: string } | { error: string }> =>
+      ipcRenderer.invoke(IPC.Coding.TranscribeGoal, { wavBase64 }),
+    onStep: (cb: (step: CodingStep) => void): (() => void) =>
+      subscribe(IPC.Events.CodingStep, cb),
+    onCaptureHotkey: (cb: () => void): (() => void) =>
+      subscribe(IPC.Events.CodingCaptureHotkey, cb),
   },
 
   // ── Subscriptions. Each returns an unsubscribe function so React useEffect

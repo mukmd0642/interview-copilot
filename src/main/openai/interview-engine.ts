@@ -5,8 +5,17 @@
 // reference build the user has been tuning.
 
 import { log, q } from '../log.js';
-import type { Language, AnswerStyle } from '../../shared/ipc.js';
+import type { Language, AnswerStyle, AnswerLength } from '../../shared/ipc.js';
 import { languagePromptName } from '../../shared/language.js';
+
+// Per-mode word targets for the LENGTH block. The candidate reads answers
+// aloud live, so 'standard' is the tight, readable default; 'detailed'
+// restores the old essay length for prep / second-monitor use.
+const ANSWER_LENGTH_TARGETS: Record<AnswerLength, { story: string; intro: string; technical: string; opinion: string }> = {
+  brief:    { story: '~100-150 words', intro: '~90-140 words',  technical: '~120-180 words', opinion: '~70-110 words' },
+  standard: { story: '~150-220 words', intro: '~120-180 words', technical: '~180-260 words', opinion: '~100-150 words' },
+  detailed: { story: '~300-450 words', intro: '~250-350 words', technical: '~280-450 words', opinion: '~180-280 words' },
+};
 
 export interface AnswerEvents {
   // (text, isDone)
@@ -67,6 +76,20 @@ const QUESTION_PREFIXES = new Set([
   'are', 'is', 'was', 'were', 'has', 'have', 'had',
 ]);
 
+// Multi-word phrasings that signal an implicit request/question even without a
+// leading question word or a "?". Checked near the START of the utterance so a
+// "tell me about…" lands on the fast path, but a description that merely
+// mentions one of these words later does not.
+const REQUEST_PHRASES = [
+  'tell me', 'tell us', 'walk me', 'walk us', 'give me', 'give us',
+  "i'd love to hear", 'i would love to hear', "i'd like to hear", "i'd like to know",
+  'i want to hear', 'i want to know', "i'm curious", 'i am curious', 'curious about',
+  "i'm wondering", 'wondering about', "let's talk about", "let's start with",
+  'talk to me about', 'talk to us about', 'what about', 'how about',
+  'your thoughts on', 'your take on', 'your experience with',
+  'maybe you can', 'can you talk', 'help me understand',
+];
+
 function isNoise(text: string): boolean {
   const s = text.trim().toLowerCase().replace(/[.,!?]+$/, '');
   return s.length < 4 || NOISE_WORDS.has(s);
@@ -86,9 +109,16 @@ function isQuestionShaped(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
   if (t.includes('?')) return true;
+  const lower = t.toLowerCase();
   // First token, lowercased, leading punctuation stripped.
-  const firstToken = t.split(/\s+/, 1)[0]?.toLowerCase().replace(/^[^a-z]+/, '');
+  const firstToken = lower.split(/\s+/, 1)[0]?.replace(/^[^a-z]+/, '');
   if (firstToken && QUESTION_PREFIXES.has(firstToken)) return true;
+  // Implicit-request phrasings ("I'd love to hear…", "what about…", "your
+  // thoughts on…") that ask for a response without a leading question word or
+  // "?". Only near the start, so a description that mentions one later doesn't
+  // get mis-flagged.
+  const head = lower.slice(0, 64);
+  for (const p of REQUEST_PHRASES) if (head.includes(p)) return true;
   return false;
 }
 
@@ -99,7 +129,11 @@ function looksComplete(text: string): boolean {
   const tail = trimmed[trimmed.length - 1];
   const w = countWords(trimmed);
   if ((tail === '?' || tail === '!') && w >= 3) return true;
-  if (tail === '.' && w >= 5) return true;
+  // A declarative ending in "." fires immediately ONLY if it actually reads
+  // like a question/request. Otherwise it's likely the interviewer mid-
+  // monologue (company/role description), so we let it soft-settle and batch
+  // rather than answering every statement and churning the answer pane.
+  if (tail === '.' && w >= 5 && isQuestionShaped(trimmed)) return true;
   // Embedded ? / ! with reasonable length — speakers often continue past
   // their question without a full stop.
   if (w >= 5 && (trimmed.includes('?') || trimmed.includes('!'))) return true;
@@ -112,6 +146,7 @@ export class InterviewEngine {
   private summary = '';
   private language: Language;
   private answerStyle: AnswerStyle = 'informal';
+  private answerLength: AnswerLength = 'standard';
   private answersEnabled = true;
 
   private context: ContextTurn[] = [];
@@ -155,6 +190,12 @@ export class InterviewEngine {
     if (this.answerStyle === style) return;
     this.answerStyle = style;
     this.log(`answer style → ${style}`);
+  }
+
+  setAnswerLength(length: AnswerLength): void {
+    if (this.answerLength === length) return;
+    this.answerLength = length;
+    this.log(`answer length → ${length}`);
   }
 
   setAnswersEnabled(enabled: boolean): void {
@@ -344,7 +385,7 @@ export class InterviewEngine {
         return;
       }
       this.lastSuggestedAnswer = acc.join('');
-      this.log(`generateAnswer DONE after ${Date.now() - startedAt}ms; ${this.lastSuggestedAnswer.length} chars`);
+      this.log(`generateAnswer DONE after ${Date.now() - startedAt}ms; ${this.lastSuggestedAnswer.length} chars: ${q(this.lastSuggestedAnswer, 200)}`);
       this.events.onAnswerChunk('', true);
     } catch (err) {
       if (signal.aborted) {
@@ -410,13 +451,15 @@ export class InterviewEngine {
       sys.push("  - Conceptual technical explanations ('how does X work', 'walk me through your design', 'how would you architect this', 'why did you choose Y') are spoken prose, NOT bullets — the candidate is explaining the system out loud, not reading items off a list. Use natural connective tissue ('the reason that matters is…', 'where this gets tricky is…', 'so what we did was…').");
     }
     sys.push('');
-    sys.push('LENGTH — give the interviewer enough to chew on. Short answers feel evasive. Match these targets:');
-    sys.push('  - Trivial / yes-no / quick factual: 2-4 sentences (~50-100 words).');
-    sys.push("  - Behavioral / experience / 'tell me about a time' / 'walk me through a project': RICH storytelling, ~280-450 words. Set the scene, name the system and stakes, walk through the specific actions and the moments of friction, land the result with a concrete number or change. Don't shortcut the middle — the friction and the decisions are what the interviewer is actually evaluating.");
-    sys.push("  - Intro / background / 'tell me about yourself': ~250-350 words of narrative. Move through the career arc with one or two concrete moments that make it land.");
-    sys.push("  - Technical conceptual deep-dives (architecture, system design, debugging walkthroughs, 'how would you build…'): ~280-450 words of PROSE. One-sentence direct answer, then explain how it works, the trade-offs you weighed and why, and one concrete moment from experience that grounds it.");
+    const len = ANSWER_LENGTH_TARGETS[this.answerLength];
+    sys.push(`LENGTH — the candidate reads every answer ALOUD in real time, so these word targets are AUTHORITATIVE for this interview. Where any later section names a different (longer) count, use THESE instead:`);
+    sys.push('  - Trivial / yes-no / quick factual: 2-4 sentences (~40-80 words).');
+    sys.push(`  - Behavioral / experience / 'tell me about a time' / 'walk me through a project': ${len.story}. Set the scene, name the system and stakes, the key actions and the moment of friction, and land a concrete result. Tight but substantive — keep the friction and the decision, cut the padding.`);
+    sys.push(`  - Intro / background / 'tell me about yourself': ${len.intro} of narrative. Move through the career arc with one or two concrete moments.`);
+    sys.push(`  - Technical conceptual deep-dives (architecture, system design, debugging walkthroughs, 'how would you build…'): ${len.technical} of PROSE. One-sentence direct answer, then how it works, the key trade-off and why, and one concrete grounding example.`);
     sys.push('  - Technical list / comparison: bullet format, 5-8 bullets, with a one-sentence preamble and a one-sentence closer stating your pick and why.');
-    sys.push('  - Opinion / approach / culture: ~180-280 words of prose. Position in the first sentence, one real experience that formed it, brief honest acknowledgement of the trade-off.');
+    sys.push(`  - Opinion / approach / culture: ${len.opinion} of prose. Position in the first sentence, one real experience that formed it, brief honest acknowledgement of the trade-off.`);
+    sys.push('Lead with a first sentence that answers the question on its own, so the candidate is covered even if they read only the opening.');
     sys.push('');
     sys.push('DEPTH — every answer must give the interviewer something to follow up on:');
     sys.push("  - Name the specific project, team, system, or decision — never 'a project I worked on'.");

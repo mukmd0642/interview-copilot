@@ -2,10 +2,18 @@ import { create } from 'zustand';
 import {
   DEFAULT_PIN_SHORTCUT,
   DEFAULT_PRIVACY_SHORTCUT,
+  DEFAULT_HIDE_SHORTCUT,
   type Language,
   type Theme,
+  type LayoutMode,
   type CaptionStatus,
   type AnswerChunk,
+  type CodingLanguage,
+  type CodingEffort,
+  type CodingTaskType,
+  type CodingStep,
+  type CodeSolution,
+  type CodeReview,
 } from '../../../shared/ipc';
 
 // Zustand store holds the rolling UI state. Kept intentionally flat — we
@@ -33,6 +41,24 @@ export interface HistoryEntry {
   at: number;
 }
 
+/** A rendered line in the coding-agent timeline. */
+export interface CodingTimelineItem {
+  id: string;
+  step: CodingStep;
+}
+
+/**
+ * Coding session phase, derived from the steps the agent emits:
+ *   idle     — no session
+ *   thinking — model is working
+ *   navigate — agent asked the candidate to scroll/open a file & recapture
+ *   ask      — agent asked a clarifying question
+ *   suggest  — agent proposes switching language; awaiting candidate confirm
+ *   solved   — a solution is on screen
+ *   error    — something failed
+ */
+export type CodingPhase = 'idle' | 'thinking' | 'navigate' | 'ask' | 'suggest' | 'solved' | 'error';
+
 const HOMEPAGE = 'https://www.google.com';
 const newTabId = (): string => Math.random().toString(36).slice(2, 10);
 
@@ -40,12 +66,16 @@ export interface AppState {
   // Persistent / config
   language: Language;
   theme: Theme;
+  layoutMode: LayoutMode;
+  // Compact mode only: whether the collapsible YOU / KEY POINTS drawer is open.
+  compactExtrasOpen: boolean;
   privacy: boolean;
   topMost: boolean;
   opacity: number;
   answersEnabled: boolean;
   pinShortcut: string;
   privacyShortcut: string;
+  hideShortcut: string;
 
   // Session lifecycle
   ccActive: boolean;
@@ -81,14 +111,41 @@ export interface AppState {
   history: HistoryEntry[];
   historyOpen: boolean;
 
+  // ── Coding mode ───────────────────────────────────────────────────────
+  appMode: 'interview' | 'coding';
+  codingLanguage: CodingLanguage;
+  codingEffort: CodingEffort;
+  codingTaskType: CodingTaskType; // solve a problem, or review existing code
+  codingActive: boolean;          // a session is running
+  codingPhase: CodingPhase;
+  codingTimeline: CodingTimelineItem[];
+  captureCount: number;           // # of screenshots fed this session
+  codingInstruction: string;      // current "DO THIS NEXT" navigate instruction
+  codingQuestion: string;         // current ask_user question
+  codingSuggestLanguage: CodingLanguage | null; // proposed language (suggest phase)
+  codingSuggestReason: string;    // why the agent proposes switching
+  codingSolution: CodeSolution | null;
+  codingReview: CodeReview | null; // review-task result
+  codingAnswer: { question: string; answer: string } | null; // answer to interviewer's spoken question
+  codingError: string;
+
+  // Guided-apply (opt-in): walk multi-step solutions one at a time, verifying
+  // each with a screenshot before advancing.
+  guidedActive: boolean;
+  guidedIndex: number;
+  guidedVerify: { index: number; ok: boolean; message: string } | null;
+  guidedBusy: boolean;
+
   // ── Actions ─────────────────────────────────────────────────────────────
   setLanguage: (lang: Language) => void;
   setTheme: (theme: Theme) => void;
+  setLayoutMode: (mode: LayoutMode) => void;
+  toggleCompactExtras: () => void;
   setPrivacy: (b: boolean) => void;
   setTopMost: (b: boolean) => void;
   setOpacity: (n: number) => void;
   setAnswersEnabled: (b: boolean) => void;
-  setShortcuts: (pin: string, privacy: string) => void;
+  setShortcuts: (pin: string, privacy: string, hide: string) => void;
 
   setCcBusy: (b: boolean) => void;
   setCcActive: (b: boolean) => void;
@@ -113,6 +170,20 @@ export interface AppState {
   pushHistory: (url: string, title: string) => void;
   setHistoryOpen: (open: boolean) => void;
   toggleHistory: () => void;
+
+  // Coding actions
+  setAppMode: (mode: 'interview' | 'coding') => void;
+  setCodingLanguage: (lang: CodingLanguage) => void;
+  setCodingEffort: (effort: CodingEffort) => void;
+  setCodingTaskType: (t: CodingTaskType) => void;
+  beginCodingSession: () => void;       // reset timeline + flags for a new run
+  endCodingSession: () => void;
+  clearCodingAnswer: () => void;
+  startGuided: () => void;
+  guidedNext: () => void;
+  exitGuided: () => void;
+  setGuidedBusy: (b: boolean) => void;
+  applyCodingStep: (step: CodingStep) => void;
 }
 
 // Initial theme matches what main.tsx applied to <html> pre-render so the
@@ -128,12 +199,17 @@ const initialTab: BrowserTab = { id: newTabId(), title: 'New Tab', url: HOMEPAGE
 export const useApp = create<AppState>((set, get) => ({
   language: 'en',
   theme: initialTheme,
+  // Default compact; corrected from settings.get() once it resolves in
+  // InterviewView's boot effect.
+  layoutMode: 'compact',
+  compactExtrasOpen: false,
   privacy: true,
   topMost: false,
   opacity: 1,
   answersEnabled: true,
   pinShortcut: DEFAULT_PIN_SHORTCUT,
   privacyShortcut: DEFAULT_PRIVACY_SHORTCUT,
+  hideShortcut: DEFAULT_HIDE_SHORTCUT,
 
   ccActive: false,
   ccBusy: false,
@@ -144,14 +220,14 @@ export const useApp = create<AppState>((set, get) => ({
   liveSystem: '',
   liveSystemKey: '',
 
-  answerBox: 'Start CC to enable live answer suggestions.\n\nThe AI will suggest responses as the interviewer speaks.',
+  answerBox: 'Click Start to enable live answer suggestions.\n\nThe AI will suggest responses as the interviewer speaks.',
   answerStreaming: false,
   pendingAnswer: '',
   pendingReady: false,
 
   summary: 'Key points from the interview will appear here after several exchanges.',
 
-  status: { message: 'Click CC to start  ·  click Setup to enter your job details', level: 'info' },
+  status: { message: 'Click Start to begin  ·  click Setup to enter your job details', level: 'info' },
 
   browserVisible: false,
   tabs: [initialTab],
@@ -159,17 +235,44 @@ export const useApp = create<AppState>((set, get) => ({
   history: [],
   historyOpen: false,
 
+  appMode: 'interview',
+  codingLanguage: 'python',
+  codingEffort: 'fast',
+  codingTaskType: 'solve',
+  codingActive: false,
+  codingPhase: 'idle',
+  codingTimeline: [],
+  captureCount: 0,
+  codingInstruction: '',
+  codingQuestion: '',
+  codingSuggestLanguage: null,
+  codingSuggestReason: '',
+  codingSolution: null,
+  codingReview: null,
+  codingAnswer: null,
+  codingError: '',
+  guidedActive: false,
+  guidedIndex: 0,
+  guidedVerify: null,
+  guidedBusy: false,
+
   setLanguage: (language) => set({ language }),
   setTheme: (theme) => {
     set({ theme });
     document.documentElement.setAttribute('data-theme', theme);
     try { localStorage.setItem('theme', theme); } catch { /* ignore */ }
   },
+  // Renderer-side mode flag for rendering compact vs full. The window
+  // resize + persistence happens in main via window.api.window.setLayout —
+  // callers invoke both (see Toolbar/useShortcuts).
+  setLayoutMode: (layoutMode) => set({ layoutMode }),
+  toggleCompactExtras: () => set((s) => ({ compactExtrasOpen: !s.compactExtrasOpen })),
   setPrivacy: (privacy) => set({ privacy }),
   setTopMost: (topMost) => set({ topMost }),
   setOpacity: (opacity) => set({ opacity }),
   setAnswersEnabled: (answersEnabled) => set({ answersEnabled }),
-  setShortcuts: (pinShortcut, privacyShortcut) => set({ pinShortcut, privacyShortcut }),
+  setShortcuts: (pinShortcut, privacyShortcut, hideShortcut) =>
+    set({ pinShortcut, privacyShortcut, hideShortcut }),
 
   setCcBusy: (ccBusy) => set({ ccBusy }),
   setCcActive: (ccActive) => set({ ccActive }),
@@ -356,4 +459,85 @@ export const useApp = create<AppState>((set, get) => ({
 
   setHistoryOpen: (historyOpen) => set({ historyOpen }),
   toggleHistory: () => set((s) => ({ historyOpen: !s.historyOpen })),
+
+  // ── Coding mode ─────────────────────────────────────────────────────────
+  setAppMode: (appMode) => set({ appMode }),
+  setCodingLanguage: (codingLanguage) => {
+    set({ codingLanguage });
+    void window.api.settings.set({ codingLanguage });
+  },
+  setCodingEffort: (codingEffort) => {
+    set({ codingEffort });
+    void window.api.settings.set({ codingEffort });
+  },
+  setCodingTaskType: (codingTaskType) => {
+    set({ codingTaskType });
+    void window.api.settings.set({ codingTaskType });
+  },
+  beginCodingSession: () => set({
+    codingActive: true,
+    codingPhase: 'thinking',
+    codingTimeline: [],
+    captureCount: 0,
+    codingInstruction: '',
+    codingQuestion: '',
+    codingSuggestLanguage: null,
+    codingSuggestReason: '',
+    codingSolution: null,
+    codingReview: null,
+    codingAnswer: null,
+    codingError: '',
+    guidedActive: false,
+    guidedIndex: 0,
+    guidedVerify: null,
+    guidedBusy: false,
+  }),
+  endCodingSession: () => set({ codingActive: false, codingPhase: 'idle' }),
+  clearCodingAnswer: () => set({ codingAnswer: null }),
+  startGuided: () => set({ guidedActive: true, guidedIndex: 0, guidedVerify: null, guidedBusy: false }),
+  guidedNext: () => set((s) => ({ guidedIndex: s.guidedIndex + 1, guidedVerify: null })),
+  exitGuided: () => set({ guidedActive: false, guidedVerify: null, guidedBusy: false }),
+  setGuidedBusy: (guidedBusy) => set({ guidedBusy }),
+
+  applyCodingStep: (step) => set((s) => {
+    const item: CodingTimelineItem = { id: newTabId(), step };
+    const timeline = [...s.codingTimeline, item];
+    // Derive the phase + the focused fields the UI banners read.
+    switch (step.kind) {
+      case 'capture': {
+        // Number captures authoritatively here: the controller can't know the
+        // running count for a re-capture (it sends n=0), so stamp captureCount
+        // onto the rendered step. This is the value stepLabel displays.
+        const n = s.captureCount + 1;
+        const captureItem: CodingTimelineItem = { id: item.id, step: { kind: 'capture', n } };
+        return { codingTimeline: [...s.codingTimeline, captureItem], captureCount: n, codingPhase: 'thinking' };
+      }
+      case 'thinking':
+        return { codingTimeline: timeline, codingPhase: 'thinking', codingInstruction: '', codingQuestion: '', codingSuggestLanguage: null, codingSuggestReason: '' };
+      case 'instruction':
+        return { codingTimeline: timeline, codingPhase: 'navigate', codingInstruction: step.text };
+      case 'question':
+        return { codingTimeline: timeline, codingPhase: 'ask', codingQuestion: step.text };
+      case 'suggest_language':
+        return { codingTimeline: timeline, codingPhase: 'suggest', codingSuggestLanguage: step.language, codingSuggestReason: step.reason };
+      case 'solution':
+        return { codingTimeline: timeline, codingPhase: 'solved', codingSolution: step.solution, codingInstruction: '', codingQuestion: '', codingSuggestLanguage: null, codingSuggestReason: '' };
+      case 'review':
+        return { codingTimeline: timeline, codingPhase: 'solved', codingReview: step.review, codingInstruction: '', codingQuestion: '', codingSuggestLanguage: null, codingSuggestReason: '' };
+      case 'answer':
+        // Independent overlay banner — does not touch the timeline or phase.
+        return { codingAnswer: { question: step.question, answer: step.answer } };
+      case 'verify':
+        // Guided-apply verification result — clears the busy spinner.
+        return { guidedVerify: { index: step.index, ok: step.ok, message: step.message }, guidedBusy: false };
+      case 'error':
+        return { codingTimeline: timeline, codingPhase: 'error', codingError: step.message };
+      case 'done':
+        // Keep whatever phase we ended in (solved/error); just stop "active"
+        // if we weren't left with a solution to read.
+        return { codingTimeline: timeline };
+      default:
+        return { codingTimeline: timeline };
+    }
+  }),
 }));

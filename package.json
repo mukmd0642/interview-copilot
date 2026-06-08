@@ -1,6 +1,6 @@
 {
   "name": "interview-copilot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Cross-platform interview copilot — live captions and answer suggestions",
   "main": "out/main/index.js",
   "type": "module",
@@ -20,7 +20,11 @@
     "make-icon": "node scripts/make-icon.mjs"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "https-proxy-agent": "^7.0.6",
     "koffi": "^2.10.1",
+    "react-diff-viewer-continued": "^4.2.2",
+    "undici": "^6.26.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
