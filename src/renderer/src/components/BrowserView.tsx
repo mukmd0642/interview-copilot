@@ -14,6 +14,18 @@ import { webviewRegistry, type WebviewElement } from '../lib/webview-registry.js
 // Mac. The candidate joins the interview in their normal native client.
 
 const HOMEPAGE = 'https://www.google.com';
+
+// Electron's default User-Agent carries an "Electron/33…" token AND the app
+// product name ("Interview Copilot/0.2.0" — which even contains a SPACE).
+// Those non-standard tokens make UA-sniffing sites — Google's homepage in
+// particular — serve a broken/legacy page that never hydrates, leaving its
+// inline critical CSS rendered as visible text. Present a clean Chrome UA
+// (real Chromium version, app/Electron tokens stripped) to embedded sites.
+const CLEAN_UA = navigator.userAgent
+  .replace(/\s*(Interview Copilot|Electron)\/[\d.]+/gi, '')
+  .replace(/\s{2,}/g, ' ')
+  .trim();
+
 const startUrl = (raw: string): string => {
   const v = raw.trim();
   if (!v) return HOMEPAGE;
@@ -48,10 +60,10 @@ export function BrowserView(): JSX.Element {
     const wv = activeWebview();
     if (!wv) return;
     const url = startUrl(raw ?? address);
-    wv.loadURL(url).catch(() => {
-      // Some URLs (chrome://, file://, javascript:) are blocked by Electron
-      // for security. Silently failing is the right behaviour — the
-      // address bar still reflects what the user typed.
+    wv.loadURL(url).catch((err) => {
+      // chrome://, file://, javascript: etc. are blocked by Electron — those
+      // are expected. Log the rest so a real navigation failure is visible.
+      window.api.log('browser', `loadURL failed: ${(err as Error).message} (${url})`);
     });
   }, [address]);
 
@@ -141,12 +153,33 @@ export function BrowserView(): JSX.Element {
                     updateTab(t.id, { url });
                     pushHistory(url, el.getTitle?.() ?? '');
                   });
+                  // ── Error visibility ──────────────────────────────────────
+                  // The webview was previously silent on failures; these
+                  // surface load errors, crashes, and page-side error/CSP logs
+                  // into app.log so a broken page is diagnosable.
+                  el.addEventListener('did-fail-load' as never, ((evt: Event & { errorCode?: number; errorDescription?: string; validatedURL?: string; isMainFrame?: boolean }) => {
+                    if (evt.isMainFrame === false) return; // ignore sub-resource aborts
+                    if (evt.errorCode === -3) return;       // ERR_ABORTED (user navigated away) — noise
+                    window.api.log('browser', `did-fail-load ${evt.errorCode} ${evt.errorDescription ?? ''} url=${evt.validatedURL ?? ''}`);
+                  }) as EventListener);
+                  el.addEventListener('render-process-gone' as never, ((evt: Event & { reason?: string }) => {
+                    window.api.log('browser', `render-process-gone reason=${evt.reason ?? 'unknown'}`);
+                  }) as EventListener);
+                  el.addEventListener('console-message' as never, ((evt: Event & { level?: number | string; message?: string; sourceId?: string; line?: number }) => {
+                    const msg = evt.message ?? '';
+                    // Only forward the diagnostic ones — page console logs are noisy.
+                    if (!/error|refused|blocked|denied|csp|violat|fail|insecure/i.test(msg)) return;
+                    window.api.log('browser', `console: ${msg.slice(0, 200)} (${evt.sourceId ?? ''}:${evt.line ?? ''})`);
+                  }) as EventListener);
                 }
               } else {
                 webviewRefs.current.delete(t.id);
               }
             }}
             src={t.url}
+            // Clean Chrome UA so UA-sniffing sites (Google) don't serve a
+            // broken page that dumps its inline CSS as visible text.
+            useragent={CLEAN_UA as never}
             style={{ display: t.id === activeTabId ? 'flex' : 'none', width: '100%', height: '100%' }}
             allowpopups={'true' as never}
           />

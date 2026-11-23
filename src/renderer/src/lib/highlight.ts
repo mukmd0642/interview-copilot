@@ -15,6 +15,20 @@ import csharp from 'highlight.js/lib/languages/csharp';
 import go from 'highlight.js/lib/languages/go';
 import ruby from 'highlight.js/lib/languages/ruby';
 import sql from 'highlight.js/lib/languages/sql';
+import c from 'highlight.js/lib/languages/c';
+import rust from 'highlight.js/lib/languages/rust';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import swift from 'highlight.js/lib/languages/swift';
+import php from 'highlight.js/lib/languages/php';
+import scala from 'highlight.js/lib/languages/scala';
+import elixir from 'highlight.js/lib/languages/elixir';
+import erlang from 'highlight.js/lib/languages/erlang';
+import dart from 'highlight.js/lib/languages/dart';
+import r from 'highlight.js/lib/languages/r';
+import bash from 'highlight.js/lib/languages/bash';
+import perl from 'highlight.js/lib/languages/perl';
+import lua from 'highlight.js/lib/languages/lua';
+import haskell from 'highlight.js/lib/languages/haskell';
 import type { CodingLanguage } from '../../../shared/ipc';
 
 // Our CodingLanguage values map 1:1 onto highlight.js language ids.
@@ -27,6 +41,20 @@ hljs.registerLanguage('csharp', csharp);
 hljs.registerLanguage('go', go);
 hljs.registerLanguage('ruby', ruby);
 hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('c', c);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('kotlin', kotlin);
+hljs.registerLanguage('swift', swift);
+hljs.registerLanguage('php', php);
+hljs.registerLanguage('scala', scala);
+hljs.registerLanguage('elixir', elixir);
+hljs.registerLanguage('erlang', erlang);
+hljs.registerLanguage('dart', dart);
+hljs.registerLanguage('r', r);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('perl', perl);
+hljs.registerLanguage('lua', lua);
+hljs.registerLanguage('haskell', haskell);
 
 /**
  * Highlight `code` as `language`, returning HTML (token <span>s). highlight.js

@@ -22,7 +22,7 @@ npm run build:win      # NSIS installer + portable .exe  → dist/
 npm run build:mac      # DMG (run ON a Mac for signing)
 ```
 
-- **Login:** auth against `resume-tailor-webapp.vercel.app`; the OpenAI API key is fetched server-side and **held in the main process only** (never sent to the renderer).
+- **Login:** auth against `career-forge-web.vercel.app`; the OpenAI API key is fetched server-side and **held in the main process only** (never sent to the renderer).
 - **Logs:** `%APPDATA%\interview-copilot\app.log` (Win) / `~/Library/Application Support/interview-copilot/app.log` (Mac). Renderer errors are forwarded there too (category `renderer/*`).
 - **Settings:** `%APPDATA%\interview-copilot\settings.json`.
 - **QA flag:** `IC_DISABLE_CONTENT_PROTECTION=1 npm run dev` boots with stealth OFF so the window can be screenshotted. Env-gated, dev only.

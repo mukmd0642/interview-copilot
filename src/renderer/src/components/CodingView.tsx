@@ -13,7 +13,10 @@ import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 
 const LANG_LABEL: Record<CodingLanguage, string> = {
   python: 'Python', javascript: 'JavaScript', typescript: 'TypeScript', java: 'Java',
-  cpp: 'C++', csharp: 'C#', go: 'Go', ruby: 'Ruby', sql: 'SQL',
+  cpp: 'C++', c: 'C', csharp: 'C#', go: 'Go', rust: 'Rust', kotlin: 'Kotlin',
+  swift: 'Swift', ruby: 'Ruby', php: 'PHP', scala: 'Scala', elixir: 'Elixir',
+  erlang: 'Erlang', dart: 'Dart', r: 'R', sql: 'SQL', bash: 'Bash',
+  perl: 'Perl', lua: 'Lua', haskell: 'Haskell',
 };
 
 export function CodingView(): JSX.Element {

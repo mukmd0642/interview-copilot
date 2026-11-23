@@ -1,6 +1,6 @@
 {
   "name": "interview-copilot",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Cross-platform interview copilot — live captions and answer suggestions",
   "main": "out/main/index.js",
   "type": "module",

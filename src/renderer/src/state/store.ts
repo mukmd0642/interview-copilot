@@ -325,31 +325,15 @@ export const useApp = create<AppState>((set, get) => ({
   applyAnswerChunk: ({ text, done }) => {
     const s = get();
     if (!s.answersEnabled) return;
-    // START signal
+    // START signal — clear the box and stream the new answer LIVE, even if an
+    // answer is already on screen. (Previously we buffered into an invisible
+    // pendingAnswer and only revealed the full text on mic-silence/flush,
+    // which read as "wait, then dump the whole answer." The candidate wants to
+    // see it build token-by-token as it arrives.) The trade-off — a new
+    // question replaces the answer you're mid-reading — is mitigated by the
+    // engine's question-detection only firing on genuine new questions.
     if (!done && text.length === 0) {
-      // Always buffer when ANY answer is currently visible — including
-      // when we're still mid-stream on a previous answer. The engine
-      // suppresses the previous gen's DONE on 'new-question' aborts
-      // precisely so this branch can decide "buffer" without racing the
-      // old DONE → answerStreaming=false flip. The candidate keeps
-      // reading what's on screen until they choose to advance.
-      if (s.answerBox.length > 0) {
-        set({
-          pendingAnswer: '',
-          pendingReady: false,
-          // answerStreaming = false means "the next content chunk goes
-          // into pendingAnswer instead of answerBox" — i.e. we're now
-          // accumulating into the buffer.
-          answerStreaming: false,
-        });
-      } else {
-        set({
-          answerBox: '',
-          pendingAnswer: '',
-          pendingReady: false,
-          answerStreaming: true,
-        });
-      }
+      set({ answerBox: '', pendingAnswer: '', pendingReady: false, answerStreaming: true });
       return;
     }
     // DONE signal

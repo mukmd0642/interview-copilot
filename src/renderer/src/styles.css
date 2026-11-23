@@ -18,10 +18,10 @@
   --backdrop:        rgba(0, 0, 0, 0.55);
 
   /* Typography */
-  --fg:              #f0f0f5;
-  --fg-muted:        #96969e;
-  --fg-label:        #bebec8;
-  --fg-very-muted:   #4a4a4a;
+  --fg:              #f7f7fb;
+  --fg-muted:        #b8b8c4;
+  --fg-label:        #d6d6e0;
+  --fg-very-muted:   #74747e;
 
   /* Accent palette */
   --accent:          #007acc;
@@ -44,16 +44,16 @@
 
   /* Caption panels */
   --them-tint:       #1e2638;
-  --them-fg:         #82b4ff;
+  --them-fg:         #a8ccff;
   --you-tint:        #1c2c20;
-  --you-fg:          #82e68c;
+  --you-fg:          #a4f0ac;
 
   /* Answer + summary panels */
   --answer-bg:       #141c16;
-  --answer-fg:       #dcf8dc;
+  --answer-fg:       #eaffea;
   --answer-header:   #1c2c20;
   --summary-bg:      #16162a;
-  --summary-fg:      #d0d8fa;
+  --summary-fg:      #e2e8ff;
   --summary-header:  #1e1e30;
   --summary-header-fg: #96b4ff;
 
@@ -80,10 +80,10 @@
   --border:          #d0d0d8;
   --backdrop:        rgba(0, 0, 0, 0.25);
 
-  --fg:              #1a1a22;
-  --fg-muted:        #6a6a72;
-  --fg-label:        #3a3a42;
-  --fg-very-muted:   #a8a8b0;
+  --fg:              #0e0e15;
+  --fg-muted:        #4c4c56;
+  --fg-label:        #28282f;
+  --fg-very-muted:   #7c7c86;
 
   --accent:          #0066c8;
   --accent-2:        #1480e0;
@@ -105,15 +105,15 @@
 
   /* Caption panels — light tints with darker text */
   --them-tint:       #e6efff;
-  --them-fg:         #1862c2;
+  --them-fg:         #0f4ea6;
   --you-tint:        #e6f5ea;
-  --you-fg:          #1a7030;
+  --you-fg:          #115c26;
 
   --answer-bg:       #eef7f0;
-  --answer-fg:       #143820;
+  --answer-fg:       #0c2a15;
   --answer-header:   #d8ecdd;
   --summary-bg:      #eef0f8;
-  --summary-fg:      #1f2860;
+  --summary-fg:      #161e54;
   --summary-header:  #dee2f0;
   --summary-header-fg: #344080;
 
@@ -136,8 +136,13 @@ html, body, #root {
   color: var(--fg);
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: 14px;
+  /* Base weight is Medium (not the default thin 400) for legibility on the
+     dark theme. Elements that set their own 600/700 are unaffected. */
+  font-weight: 500;
   overflow: hidden;
   user-select: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 input, textarea, [contenteditable] {
@@ -785,7 +790,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   white-space: pre-wrap;
   word-wrap: break-word;
 }
-.panel__body--answer  { background: var(--answer-bg);  color: var(--answer-fg); font-size: 18px; }
+.panel__body--answer  { background: var(--answer-bg);  color: var(--answer-fg); font-size: 18px; font-weight: 600; }
 .panel__body--summary { background: var(--summary-bg); color: var(--summary-fg); font-size: 15px; }
 .panel__body--live    { color: var(--fg-muted); }
 .panel__body--transcribing { color: var(--fg-very-muted); font-style: italic; }

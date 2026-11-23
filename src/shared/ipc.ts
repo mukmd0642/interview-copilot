@@ -201,7 +201,9 @@ export type CodingEffort = 'fast' | 'careful';
 export type CodingTaskType = 'solve' | 'review';
 
 export const CODING_LANGUAGES = [
-  'python', 'javascript', 'typescript', 'java', 'cpp', 'csharp', 'go', 'ruby', 'sql',
+  'python', 'javascript', 'typescript', 'java', 'cpp', 'c', 'csharp', 'go',
+  'rust', 'kotlin', 'swift', 'ruby', 'php', 'scala', 'elixir', 'erlang',
+  'dart', 'r', 'sql', 'bash', 'perl', 'lua', 'haskell',
 ] as const;
 export type CodingLanguage = (typeof CODING_LANGUAGES)[number];
 

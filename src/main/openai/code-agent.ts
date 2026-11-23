@@ -617,6 +617,8 @@ export class CodeAgent {
       react: 'typescript', tsx: 'typescript', 'react/typescript': 'typescript', ts: 'typescript',
       jsx: 'javascript', js: 'javascript', node: 'javascript', nodejs: 'javascript', 'react/javascript': 'javascript',
       'c++': 'cpp', 'c#': 'csharp', golang: 'go', py: 'python',
+      rs: 'rust', kt: 'kotlin', kts: 'kotlin', ex: 'elixir', exs: 'elixir', erl: 'erlang',
+      sh: 'bash', shell: 'bash', zsh: 'bash', pl: 'perl', hs: 'haskell',
     };
     return alias[v] ?? this.language;
   }

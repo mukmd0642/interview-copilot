@@ -1,5 +1,5 @@
 import { app } from 'electron';
-import { promises as fs, mkdirSync } from 'fs';
+import { promises as fs, mkdirSync, appendFileSync } from 'fs';
 import path from 'path';
 
 // Single shared log sink. Mirrors the WinForms AppLog so a reader who knows
@@ -34,6 +34,18 @@ export function log(category: string, msg: string): void {
   if (!app.isPackaged) {
     process.stderr.write(line);
   }
+}
+
+/**
+ * Synchronous log — for fatal handlers and early-startup paths. The async
+ * `log()` queues an appendFile that is DISCARDED if the process exits before
+ * the next tick (which is exactly what made proxy-startup crashes vanish with
+ * "no logs"). This writes immediately, so the reason survives a hard exit.
+ */
+export function logSync(category: string, msg: string): void {
+  const line = `[${fmtTime()}] [${category.padEnd(15)}] ${msg}\n`;
+  try { appendFileSync(LOG_PATH, line); } catch { /* logging must never throw */ }
+  try { if (!app.isPackaged) process.stderr.write(line); } catch { /* ignore */ }
 }
 
 /** Quotes a string for log output, collapses newlines, truncates if long. */

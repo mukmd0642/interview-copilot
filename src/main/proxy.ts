@@ -26,7 +26,10 @@
 import type { App } from 'electron';
 import { Agent, ProxyAgent, setGlobalDispatcher } from 'undici';
 import { HttpsProxyAgent } from 'https-proxy-agent';
-import { log } from './log.js';
+// Use the SYNCHRONOUS logger throughout: all of this runs at startup, and if a
+// proxy misconfig brings the app down right after, the async log queue is lost
+// (that's what made the failure look silent). Sync writes survive a hard exit.
+import { logSync as log } from './log.js';
 
 // Precedence order: an explicit HTTPS_PROXY wins over the catch-all ALL_PROXY,
 // which wins over HTTP_PROXY. Lower-case variants (curl convention) are
@@ -123,17 +126,17 @@ function stripCredentials(url: string): string {
  * stack init and is ignored if applied after the app is ready.
  */
 export function applyProxyFromEnv(app: App): void {
-  const url = resolve();
-  if (!url) {
-    log('proxy', 'no proxy env var set — direct connections');
-    return;
-  }
-
-  // This runs at module load, BEFORE the uncaughtException handler is in place.
-  // A throw here would take the whole app down with no window and no log line,
-  // so proxy setup must NEVER be fatal: on any failure we log and fall back to
-  // direct connections instead of crashing.
+  // Proxy setup must NEVER be fatal. It runs in the synchronous startup path,
+  // so ANY throw — resolve(), URL parsing, dispatcher construction — would
+  // abort startup before app.whenReady registers (→ no window, silent exit).
+  // resolve() is now INSIDE this try so even a malformed proxy URL can't escape.
   try {
+    const url = resolve();
+    if (!url) {
+      log('proxy', 'no proxy env var set — direct connections');
+      return;
+    }
+
     // Both undici's `uri` and Chromium's --proxy-server must be
     // credential-FREE: undici takes auth via the `token` option, and Chromium
     // rejects user:pass@ in the switch (auth goes through the 'login' event).
@@ -147,6 +150,10 @@ export function applyProxyFromEnv(app: App): void {
 
     // 2) Chromium / <webview>.
     app.commandLine.appendSwitch('proxy-server', clean);
+    // NEVER route local resources through the proxy — that wedges startup (in
+    // dev the renderer loads from http://localhost; a future companion view
+    // serves on localhost too). <local> covers bare hostnames; add loopback.
+    app.commandLine.appendSwitch('proxy-bypass-list', '<local>;localhost;127.0.0.1;[::1]');
 
     // Answer the proxy auth challenge when credentials were supplied — Chromium
     // can't read them from the switch.

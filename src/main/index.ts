@@ -5,15 +5,17 @@ import { registerGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts.
 import { installWebviewShortcutHook } from './webview-shortcuts.js';
 import { applyProxyFromEnv } from './proxy.js';
 import * as settings from './settings.js';
-import { sessionBoundary, log } from './log.js';
+import { sessionBoundary, log, logSync } from './log.js';
 
 // Register crash handlers FIRST, before any module-load work below, so an
-// early failure is logged instead of vanishing into a silent exit.
+// early failure is logged instead of vanishing into a silent exit. Use the
+// SYNCHRONOUS logger here — a crash during startup exits the process before the
+// async log queue flushes, which is what made proxy-startup deaths look silent.
 process.on('uncaughtException', (err) => {
-  log('main', `UNCAUGHT: ${err.stack ?? err.message}`);
+  logSync('main', `UNCAUGHT: ${err.stack ?? err.message}`);
 });
 process.on('unhandledRejection', (reason) => {
-  log('main', `UNHANDLED REJECTION: ${reason instanceof Error ? reason.stack : String(reason)}`);
+  logSync('main', `UNHANDLED REJECTION: ${reason instanceof Error ? reason.stack : String(reason)}`);
 });
 
 // Auto-detect an HTTP(S) proxy from the environment (HTTPS_PROXY / HTTP_PROXY /
@@ -21,7 +23,14 @@ process.on('unhandledRejection', (reason) => {
 // the realtime WebSockets, and the embedded browser. Must run before app
 // `ready` so the Chromium --proxy-server switch takes effect. Internally
 // guarded so a bad proxy config can never crash startup.
-applyProxyFromEnv(app);
+// Belt-and-suspenders: even if proxy setup throws, it must NOT abort this
+// synchronous top-level (which would stop app.whenReady below from ever
+// registering → no window, silent exit).
+try {
+  applyProxyFromEnv(app);
+} catch (err) {
+  logSync('main', `applyProxyFromEnv threw (continuing without proxy): ${(err as Error).message}`);
+}
 
 ensureSingleInstance();
 
@@ -128,7 +137,8 @@ app.whenReady().then(async () => {
   try {
     await createMainWindow();
   } catch (err) {
-    log('main', `createMainWindow failed: ${(err as Error).message}`);
+    // Sync log: app.quit() exits before the async log queue would flush.
+    logSync('main', `createMainWindow failed: ${(err as Error).stack ?? (err as Error).message}`);
     app.quit();
   }
 
